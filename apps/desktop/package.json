@@ -1,0 +1,28 @@
+{
+  "name": "@felix/desktop",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit",
+    "package": "node ../../scripts/fetch-node-runtime.mjs && node ../../scripts/fetch-bun-runtime.mjs && node ../../scripts/bundle-agent.mjs && electron-vite build && electron-builder --mac --config electron-builder.yml"
+  },
+  "dependencies": {
+    "@felix/contracts": "*",
+    "@felix/core": "*",
+    "@earendil-works/pi-coding-agent": "^0.78.0"
+  },
+  "devDependencies": {
+    "@felix/web": "*",
+    "@types/node": "^24.10.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.2.0",
+    "electron-vite": "^2.3.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.0"
+  }
+}

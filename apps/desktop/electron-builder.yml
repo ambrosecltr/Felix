@@ -1,0 +1,53 @@
+appId: ai.felix.app
+productName: Felix
+copyright: Copyright © 2026 Felix
+artifactName: ${productName}-${version}-${arch}.${ext}
+
+directories:
+  output: release
+  buildResources: resources
+
+afterPack: scripts/copy-agent-after-pack.cjs
+
+# The app runs from dist/ (built by electron-vite). Bundle the built main,
+# preload, and renderer, plus package.json for the "main" entry. The PI agent
+# is NOT pulled from here: the workspace's bun store uses symlinks that don't
+# survive packaging, so we ship a dedicated flat install under resources/agent.
+files:
+  - dist/**/*
+  - package.json
+  - "!**/*.map"
+
+# Ship the bundled standalone Node + bun runtimes, the self-contained PI agent
+# install (with its full dependency tree), and the icon as plain on-disk files
+# (extraResources lands outside the asar, so Node resolves the agent's deps
+# normally and the binaries are directly executable).
+extraResources:
+  - from: resources/node
+    to: node
+  - from: resources/bun
+    to: bun
+  - from: resources/agent
+    to: agent
+  - from: resources/icon.icns
+    to: icon.icns
+
+mac:
+  category: public.app-category.education
+  icon: resources/icon.icns
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  # Local/dev builds: don't require an Apple Developer identity.
+  identity: null
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+      type: file
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications

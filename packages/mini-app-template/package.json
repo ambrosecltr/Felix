@@ -1,0 +1,16 @@
+{
+  "name": "@felix/mini-app-template",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./files": "./src/files.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "typescript": "^5.7.3"
+  }
+}

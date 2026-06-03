@@ -1,0 +1,21 @@
+{
+  "name": "@felix/shared",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./paths": "./src/paths.ts",
+    "./ids": "./src/ids.ts",
+    "./git": "./src/git.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@felix/contracts": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "typescript": "^5.7.3"
+  }
+}
