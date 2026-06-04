@@ -6,6 +6,25 @@ A macOS desktop app that lets kids build mini apps by chatting. They describe wh
 
 Download the latest macOS DMG from the [GitHub Releases tab](../../releases/latest), then drag Felix into Applications.
 
+Felix is currently unsigned and not notarized with Apple yet. macOS may say the app or disk image is "damaged" after downloading or receiving it over AirDrop; that usually means Gatekeeper is blocking the unsigned build, not that the download is corrupt.
+
+Current release builds are Apple Silicon only (`arm64`). They will not run on Intel Macs.
+
+If macOS refuses to open the DMG or app, remove the quarantine attribute:
+
+```bash
+cd ~/Downloads
+xattr -cr Felix-0.0.2-arm64.dmg
+open Felix-0.0.2-arm64.dmg
+```
+
+After dragging Felix into Applications, run:
+
+```bash
+xattr -cr /Applications/Felix.app
+open /Applications/Felix.app
+```
+
 ## Quick Start
 
 **Requirements:** macOS, [Bun](https://bun.sh) 1.3+, Node 24+
@@ -31,7 +50,7 @@ The packaged `.app` bundles its own Node, Bun, and PI agent runtimes so it doesn
 bun run package:desktop
 ```
 
-Output lands in `apps/desktop/release/` as a DMG plus the unpacked app bundle. Local builds are unsigned, so you'll need to right-click > Open the first time.
+Output lands in `apps/desktop/release/` as a DMG plus the unpacked app bundle. Local builds are unsigned. For distribution to other Macs, Felix needs to be signed with an Apple Developer ID certificate and notarized.
 
 ## Commands
 
