@@ -300,6 +300,10 @@ export class MiniAppManager {
     this.agent.abort(appId);
   }
 
+  respondToAgentUi(appId: string, response: Parameters<AgentManager["respondToExtensionUi"]>[1]): void {
+    this.agent.respondToExtensionUi(appId, response);
+  }
+
   // --- checkpoints ---
 
   async listCheckpoints(appId: string): Promise<Checkpoint[]> {
@@ -379,7 +383,7 @@ export class MiniAppManager {
 
   private handleAgentEvent(appId: string, event: AgentEvent): void {
     this.emit({ kind: "agent", appId, event });
-    this.enqueuePersist(appId, event);
+    if (event.type !== "extension_ui_request") this.enqueuePersist(appId, event);
   }
 
   /**

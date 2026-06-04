@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import type { MiniAppManager } from "@felix/core";
-import type { FelixApiChannel } from "@felix/contracts";
+import type { ExtensionUiResponse, FelixApiChannel } from "@felix/contracts";
 import type { MiniAppView, ViewBounds } from "./miniAppView.ts";
 
 const MAX_VIEW_BOUND = 100_000;
@@ -25,6 +25,10 @@ export function registerIpc(manager: MiniAppManager, getView: () => MiniAppView 
     return manager.sendChat(appId, text);
   });
   handle("chat.abort", (arg) => manager.abortChat((arg as { appId: string }).appId));
+  handle("agent.ui.respond", (arg) => {
+    const { appId, response } = arg as { appId: string; response: ExtensionUiResponse };
+    return manager.respondToAgentUi(appId, response);
+  });
 
   handle("checkpoint.list", (arg) => manager.listCheckpoints((arg as { appId: string }).appId));
   handle("checkpoint.restore", (arg) => {

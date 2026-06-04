@@ -9,11 +9,38 @@ export const AgentEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("message_end") }),
   z.object({ type: z.literal("tool_start"), toolName: z.string(), label: z.string().optional() }),
   z.object({ type: z.literal("tool_end"), toolName: z.string(), isError: z.boolean() }),
+  z.object({
+    type: z.literal("extension_ui_request"),
+    request: z.object({
+      id: z.string(),
+      method: z.string(),
+      title: z.string().optional(),
+      message: z.string().optional(),
+      options: z.string().array().optional(),
+      placeholder: z.string().optional(),
+      prefill: z.string().optional(),
+      timeout: z.number().optional(),
+      notifyType: z.enum(["info", "warning", "error"]).optional(),
+      statusKey: z.string().optional(),
+      statusText: z.string().optional(),
+      widgetKey: z.string().optional(),
+      widgetLines: z.string().array().optional(),
+      text: z.string().optional(),
+    }),
+  }),
   z.object({ type: z.literal("agent_start") }),
   z.object({ type: z.literal("agent_end") }),
   z.object({ type: z.literal("error"), message: z.string() }),
 ]);
 export type AgentEvent = z.infer<typeof AgentEvent>;
+
+export const ExtensionUiResponse = z.object({
+  id: z.string(),
+  value: z.string().optional(),
+  confirmed: z.boolean().optional(),
+  cancelled: z.boolean().optional(),
+});
+export type ExtensionUiResponse = z.infer<typeof ExtensionUiResponse>;
 
 export const ChatMessage = z.object({
   id: z.string(),

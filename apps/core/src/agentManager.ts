@@ -2,8 +2,8 @@ import { type ChildProcess, spawn } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import type { AgentEvent, FelixSettings } from "@felix/contracts";
-import { FELIX_SYSTEM_PROMPT, felixAgentsFile } from "./agentPrompt.ts";
+import type { AgentEvent, ExtensionUiResponse, FelixSettings } from "@felix/contracts";
+import { FELIX_SYSTEM_PROMPT, felixWorkspaceFiles } from "./agentPrompt.ts";
 import { providerEnv, writeProviderConfig } from "./providerConfig.ts";
 import { buildSeatbeltProfile, isSandboxAvailable, wrapWithSandbox } from "./sandbox.ts";
 
@@ -75,7 +75,12 @@ export class AgentManager {
   private async ensureWorkspaceFiles(appDir: string, appName: string): Promise<string> {
     const piDir = path.join(appDir, ".pi");
     await fs.mkdir(piDir, { recursive: true });
-    await fs.writeFile(path.join(appDir, "AGENTS.md"), felixAgentsFile(appName), "utf8");
+    for (const file of felixWorkspaceFiles(appName)) {
+      const filePath = path.join(appDir, file.path);
+      if (file.overwrite === false && (await fileExists(filePath))) continue;
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.writeFile(filePath, file.content, "utf8");
+    }
     return piDir;
   }
 
@@ -132,6 +137,7 @@ export class AgentManager {
         ...process.env,
         ...providerEnv(settings),
         PI_AGENT_DIR: agentDir,
+        IMPECCABLE_NO_UPDATE_CHECK: "1",
         FELIX_SYSTEM_PROMPT,
       },
     });
@@ -233,6 +239,11 @@ export class AgentManager {
           isError: Boolean(event.isError),
         });
         break;
+      case "extension_ui_request": {
+        const request = normalizeExtensionUiRequest(event);
+        if (request) this.onEvent(appId, { type: "extension_ui_request", request });
+        break;
+      }
       default:
         break;
     }
@@ -256,6 +267,10 @@ export class AgentManager {
     this.agents.get(appId)?.send({ type: "abort" });
   }
 
+  respondToExtensionUi(appId: string, response: ExtensionUiResponse): void {
+    this.agents.get(appId)?.send({ type: "extension_ui_response", ...response });
+  }
+
   async stop(appId: string): Promise<void> {
     const running = this.agents.get(appId);
     if (!running) return;
@@ -269,6 +284,49 @@ export class AgentManager {
   stopAll(): void {
     for (const id of [...this.agents.keys()]) void this.stop(id);
   }
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeExtensionUiRequest(
+  event: Record<string, unknown>,
+): Extract<AgentEvent, { type: "extension_ui_request" }>["request"] | null {
+  if (typeof event.id !== "string" || typeof event.method !== "string") return null;
+  const request: Extract<AgentEvent, { type: "extension_ui_request" }>["request"] = {
+    id: event.id,
+    method: event.method,
+  };
+  for (const key of [
+    "title",
+    "message",
+    "placeholder",
+    "prefill",
+    "notifyType",
+    "statusKey",
+    "statusText",
+    "widgetKey",
+    "text",
+  ] as const) {
+    const value = event[key];
+    if (typeof value === "string") request[key] = value as never;
+  }
+  if (Array.isArray(event.options)) {
+    request.options = event.options.filter((v): v is string => typeof v === "string");
+  }
+  if (Array.isArray(event.widgetLines)) {
+    request.widgetLines = event.widgetLines.filter((v): v is string => typeof v === "string");
+  }
+  if (typeof event.timeout === "number" && Number.isFinite(event.timeout)) {
+    request.timeout = event.timeout;
+  }
+  return request;
 }
 
 function waitForExit(child: ChildProcess, timeoutMs: number): Promise<void> {

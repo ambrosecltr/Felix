@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { ChatStep, ChatTurn } from "@felix/contracts";
-import { useStore } from "../store.tsx";
+import { type UiRequest, useStore } from "../store.tsx";
 import { Button } from "./ui/Button.tsx";
 import { Loader } from "./Loader.tsx";
 import { Markdown } from "./Markdown.tsx";
 
 export function BuildChat({ appId }: { appId: string }) {
-  const { chats, felixThinking, sendChat, abortChat } = useStore();
+  const { chats, felixThinking, uiRequests, sendChat, abortChat, respondToUiRequest } = useStore();
   const [text, setText] = useState("");
   const turns = chats[appId] ?? [];
   const thinking = felixThinking[appId] ?? false;
+  const activeRequest = uiRequests[appId]?.[0];
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -41,6 +42,12 @@ export function BuildChat({ appId }: { appId: string }) {
       </div>
 
       <div className="border-t border-border p-3">
+        {activeRequest && (
+          <QuestionRequest
+            request={activeRequest}
+            onRespond={(response) => void respondToUiRequest(appId, response)}
+          />
+        )}
         <div className="rounded-lg border border-border bg-card shadow-sm focus-within:ring-2 focus-within:ring-ring/40">
           <textarea
             value={text}
@@ -69,6 +76,113 @@ export function BuildChat({ appId }: { appId: string }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function QuestionRequest({
+  request,
+  onRespond,
+}: {
+  request: UiRequest;
+  onRespond: (response: { id: string; value?: string; confirmed?: boolean; cancelled?: boolean }) => void;
+}) {
+  const [customValue, setCustomValue] = useState(request.prefill ?? "");
+  const title = request.title ?? "Felix has a question";
+  const detail = request.message ?? request.placeholder;
+
+  if (request.method === "confirm") {
+    return (
+      <QuestionShell title={title} detail={detail}>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => onRespond({ id: request.id, confirmed: true })}>
+            Yes
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => onRespond({ id: request.id, confirmed: false })}
+          >
+            No
+          </Button>
+        </div>
+      </QuestionShell>
+    );
+  }
+
+  if (request.method === "select" && request.options && request.options.length > 0) {
+    return (
+      <QuestionShell title={title} detail={detail}>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {request.options.map((option) => (
+            <Button
+              key={option}
+              variant="secondary"
+              size="sm"
+              className="h-auto justify-start whitespace-normal px-3 py-2 text-left"
+              onClick={() => onRespond({ id: request.id, value: option })}
+            >
+              {option}
+            </Button>
+          ))}
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="mt-2"
+          onClick={() => onRespond({ id: request.id, cancelled: true })}
+        >
+          Skip
+        </Button>
+      </QuestionShell>
+    );
+  }
+
+  return (
+    <QuestionShell title={title} detail={detail}>
+      <textarea
+        value={customValue}
+        onChange={(e) => setCustomValue(e.target.value)}
+        rows={request.method === "editor" ? 4 : 2}
+        className="w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/40"
+        placeholder={request.placeholder ?? "Type your answer…"}
+      />
+      <div className="mt-2 flex justify-end gap-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onRespond({ id: request.id, cancelled: true })}
+        >
+          Skip
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => onRespond({ id: request.id, value: customValue.trim() })}
+          disabled={customValue.trim().length === 0}
+        >
+          Answer
+        </Button>
+      </div>
+    </QuestionShell>
+  );
+}
+
+function QuestionShell({
+  title,
+  detail,
+  children,
+}: {
+  title: string;
+  detail?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="mb-3 rounded-lg border border-primary/25 bg-primary/5 p-3 shadow-sm">
+      <div className="mb-2">
+        <p className="text-sm font-semibold text-foreground">{title}</p>
+        {detail && <p className="mt-0.5 text-xs text-muted-foreground">{detail}</p>}
+      </div>
+      {children}
     </div>
   );
 }

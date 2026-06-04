@@ -10,6 +10,7 @@ import {
 import type {
   ChatStep,
   ChatTurn,
+  ExtensionUiResponse,
   MiniAppStatus,
   MiniAppSummary,
 } from "@felix/contracts";
@@ -26,6 +27,7 @@ interface StoreValue {
   statuses: Record<string, { status: MiniAppStatus; devUrl: string | null }>;
   chats: Record<string, ChatTurn[]>;
   felixThinking: Record<string, boolean>;
+  uiRequests: Record<string, UiRequest[]>;
   goDashboard: () => void;
   goSettings: () => void;
   openApp: (appId: string) => Promise<void>;
@@ -33,7 +35,13 @@ interface StoreValue {
   deleteApp: (appId: string) => Promise<void>;
   sendChat: (appId: string, text: string) => Promise<void>;
   abortChat: (appId: string) => Promise<void>;
+  respondToUiRequest: (appId: string, response: ExtensionUiResponse) => Promise<void>;
 }
+
+export type UiRequest = Extract<
+  import("@felix/contracts").AgentEvent,
+  { type: "extension_ui_request" }
+>["request"];
 
 const StoreContext = createContext<StoreValue | null>(null);
 
@@ -43,6 +51,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [statuses, setStatuses] = useState<StoreValue["statuses"]>({});
   const [chats, setChats] = useState<Record<string, ChatTurn[]>>({});
   const [felixThinking, setFelixThinking] = useState<Record<string, boolean>>({});
+  const [uiRequests, setUiRequests] = useState<Record<string, UiRequest[]>>({});
 
   const refreshApps = useCallback(async () => {
     const list = await felix.invoke("miniApp.list", undefined);
@@ -90,6 +99,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         } else if (e.type === "error") {
           setFelixThinking((p) => ({ ...p, [event.appId]: false }));
           finishFelixTurn(event.appId, "error", `Oops, something went wrong. ${e.message}`);
+        } else if (e.type === "extension_ui_request") {
+          handleUiRequest(event.appId, e.request);
         }
       }
     });
@@ -266,6 +277,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     await felix.invoke("chat.abort", { appId });
   }, []);
 
+  const handleUiRequest = useCallback((appId: string, request: UiRequest) => {
+    if (["notify", "setStatus", "setWidget", "setTitle", "set_editor_text"].includes(request.method)) {
+      return;
+    }
+    setUiRequests((prev) => ({
+      ...prev,
+      [appId]: [...(prev[appId] ?? []), request],
+    }));
+  }, []);
+
+  const respondToUiRequest = useCallback(
+    async (appId: string, response: ExtensionUiResponse) => {
+      setUiRequests((prev) => ({
+        ...prev,
+        [appId]: (prev[appId] ?? []).filter((request) => request.id !== response.id),
+      }));
+      await felix.invoke("agent.ui.respond", { appId, response });
+    },
+    [],
+  );
+
   const value = useMemo<StoreValue>(
     () => ({
       view,
@@ -273,6 +305,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       statuses,
       chats,
       felixThinking,
+      uiRequests,
       goDashboard: () => setView({ name: "dashboard" }),
       goSettings: () => setView({ name: "settings" }),
       openApp,
@@ -280,8 +313,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       deleteApp,
       sendChat,
       abortChat,
+      respondToUiRequest,
     }),
-    [view, apps, statuses, chats, felixThinking, openApp, createApp, deleteApp, sendChat, abortChat],
+    [
+      view,
+      apps,
+      statuses,
+      chats,
+      felixThinking,
+      uiRequests,
+      openApp,
+      createApp,
+      deleteApp,
+      sendChat,
+      abortChat,
+      respondToUiRequest,
+    ],
   );
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

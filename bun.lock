@@ -14,7 +14,7 @@
     },
     "apps/core": {
       "name": "@felix/core",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@earendil-works/pi-coding-agent": "^0.78.0",
         "@felix/contracts": "*",
@@ -28,7 +28,7 @@
     },
     "apps/desktop": {
       "name": "@felix/desktop",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@earendil-works/pi-coding-agent": "^0.78.0",
         "@felix/contracts": "*",
@@ -46,7 +46,7 @@
     },
     "apps/web": {
       "name": "@felix/web",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@felix/contracts": "*",
         "react": "^18.3.1",
@@ -67,7 +67,7 @@
     },
     "packages/contracts": {
       "name": "@felix/contracts",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "zod": "^3.24.1",
       },
@@ -77,7 +77,7 @@
     },
     "packages/mini-app-template": {
       "name": "@felix/mini-app-template",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "devDependencies": {
         "@types/node": "^24.10.0",
         "typescript": "^5.7.3",
@@ -85,7 +85,7 @@
     },
     "packages/shared": {
       "name": "@felix/shared",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@felix/contracts": "*",
       },

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AgentEvent, ChatTurn } from "./agent.ts";
+import { AgentEvent, ChatTurn, ExtensionUiResponse } from "./agent.ts";
 // ChatMessage retained in agent.ts for compatibility; turns are the new unit.
 import { Checkpoint, MiniAppStatus, MiniAppSummary } from "./miniApp.ts";
 import { FelixSettings } from "./settings.ts";
@@ -34,6 +34,7 @@ export interface FelixApi {
   "chat.history": [{ appId: string }, ChatTurn[]];
   "chat.send": [SendChatRequest, void];
   "chat.abort": [{ appId: string }, void];
+  "agent.ui.respond": [{ appId: string; response: ExtensionUiResponse }, void];
   "checkpoint.list": [{ appId: string }, Checkpoint[]];
   "checkpoint.restore": [RestoreCheckpointRequest, void];
   "settings.get": [void, FelixSettings];
