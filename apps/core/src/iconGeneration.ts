@@ -1,6 +1,6 @@
 import { type FelixSettings } from "@felix/contracts";
 
-export const XAI_ICON_MODEL = "grok-imagine-image-quality";
+export const XAI_ICON_MODEL = "grok-imagine-image";
 
 const XAI_API_BASE_URL = "https://api.x.ai/v1";
 const SETUP_CHECK_TIMEOUT_MS = 10_000;
