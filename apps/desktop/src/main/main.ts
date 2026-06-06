@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { BrowserWindow, Menu, app, nativeImage } from "electron";
 import { MiniAppManager, resolvePiBin } from "@felix/core";
 import { PUSH_CHANNEL, type PushEvent } from "@felix/contracts";
+import { resizeImageForModel } from "./imageResize.ts";
 import { registerIpc } from "./ipc.ts";
 import { MiniAppView } from "./miniAppView.ts";
 
@@ -114,7 +115,10 @@ app.whenReady().then(() => {
     if (!icon.isEmpty()) app.dock?.setIcon(icon);
     installAppMenu();
   }
-  manager = new MiniAppManager(resolvePiBin(resourcesDir()), emit, { resourcesDir: resourcesDir() });
+  manager = new MiniAppManager(resolvePiBin(resourcesDir()), emit, {
+    resourcesDir: resourcesDir(),
+    resizeImage: resizeImageForModel,
+  });
   createWindow();
   registerIpc(manager, () => miniAppView);
 

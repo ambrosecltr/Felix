@@ -9,6 +9,7 @@ import {
   type FelixSettings,
 } from "@felix/contracts";
 import { FELIX_SYSTEM_PROMPT, felixWorkspaceFiles } from "./agentPrompt.ts";
+import type { AgentImageContent } from "./chatAttachmentImages.ts";
 import { providerEnv, writeProviderConfig } from "./providerConfig.ts";
 import { buildSeatbeltProfile, isSandboxAvailable, wrapWithSandbox } from "./sandbox.ts";
 
@@ -19,6 +20,12 @@ type PiThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 interface PendingToolDetail {
   toolName: string;
   detail: string | undefined;
+}
+interface PromptCommand {
+  type: "prompt";
+  message: string;
+  images?: AgentImageContent[];
+  streamingBehavior?: "steer";
 }
 
 /** Maps raw PI tool names to friendly labels kids can understand. */
@@ -322,14 +329,10 @@ export class AgentManager {
     return this.agents.get(appId)?.streaming ?? false;
   }
 
-  prompt(appId: string, text: string): void {
+  prompt(appId: string, text: string, images: AgentImageContent[] = []): void {
     const running = this.agents.get(appId);
     if (!running) return;
-    if (running.streaming) {
-      running.send({ type: "prompt", message: text, streamingBehavior: "steer" });
-    } else {
-      running.send({ type: "prompt", message: text });
-    }
+    running.send(buildPromptCommand(text, images, running.streaming));
   }
 
   abort(appId: string): void {
@@ -374,6 +377,17 @@ export class AgentManager {
   stopAll(): void {
     for (const id of [...this.agents.keys()]) void this.stop(id);
   }
+}
+
+export function buildPromptCommand(
+  text: string,
+  images: AgentImageContent[] = [],
+  streaming: boolean = false,
+): PromptCommand {
+  const command: PromptCommand = { type: "prompt", message: text };
+  if (images.length > 0) command.images = images;
+  if (streaming) command.streamingBehavior = "steer";
+  return command;
 }
 
 function sessionIdFor(appId: string): string {

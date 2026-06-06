@@ -14,8 +14,8 @@ import felixIcon from "../assets/felix-icon.png";
 type DashboardTab = "apps" | "build";
 
 const DASHBOARD_TABS: Array<{ value: DashboardTab; label: string }> = [
-  { value: "apps", label: "Apps" },
-  { value: "build", label: "Build" },
+  { value: "apps", label: "My apps" },
+  { value: "build", label: "Build with Felix" },
 ];
 
 export function Dashboard() {
@@ -135,7 +135,7 @@ function DashboardTabs({
             tabIndex={active ? 0 : -1}
             onClick={() => onValueChange(tab.value)}
             className={cn(
-              "relative h-7 rounded-full px-4 text-[12px] outline-none transition-colors duration-80 focus-visible:ring-1 focus-visible:ring-ring",
+              "relative inline-flex h-7 items-center justify-center rounded-full px-4 text-[12px] leading-none outline-none transition-colors duration-80 text-box-trim-both text-box-edge-cap-alphabetic focus-visible:ring-1 focus-visible:ring-ring",
               active ? "text-background" : "text-muted-foreground hover:text-foreground",
             )}
           >

@@ -1,7 +1,13 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { PROVIDER_CATALOG_BY_ID, type FelixSettings, type ProviderId } from "@felix/contracts";
+import {
+  PROVIDER_CATALOG_BY_ID,
+  type FelixSettings,
+  type ProviderId,
+  type ProviderInputModality,
+  type ProviderModel,
+} from "@felix/contracts";
 
 interface PiProviderConfig {
   name: string;
@@ -9,6 +15,22 @@ interface PiProviderConfig {
   api: string;
   apiKey: string;
   authHeader: true;
+  models: PiProviderModelConfig[];
+  modelOverrides?: Record<string, PiProviderModelOverride>;
+}
+
+interface PiProviderModelConfig {
+  id: string;
+  name: string;
+  input: ProviderInputModality[];
+  cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  contextWindow: number;
+  maxTokens: number;
+  reasoning: boolean;
+}
+
+interface PiProviderModelOverride {
+  input: ProviderInputModality[];
 }
 
 interface PiApiKeyCredential {
@@ -30,6 +52,8 @@ const OPENCODE_PROVIDER_BY_AUTH_KEY: Record<string, ProviderId> = {
   "opencode-go": "oc-sdk-go",
   opencode: "oc-sdk-zen",
 };
+const DEFAULT_MODEL_LIMIT = { contextWindow: 204_800, maxTokens: 131_072 };
+const DEFAULT_MODEL_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
 /**
  * Writes PI's auth.json and models.json into the Felix agent dir so spawned
@@ -44,6 +68,7 @@ export async function writeProviderConfig(
   const auth: Record<string, PiApiKeyCredential> = {};
   const providers: Partial<Record<ProviderId, PiProviderConfig>> = {};
   const opencodeCredentials: Record<string, string> = {};
+  const activeModel = storedActiveModel(settings);
 
   for (const provider of settings.providers) {
     const meta = PROVIDER_CATALOG_BY_ID[provider.id];
@@ -69,6 +94,8 @@ export async function writeProviderConfig(
       api: meta.api,
       apiKey: `$${envVar}`,
       authHeader: true,
+      models: modelsForPiConfig(settings, provider.id, activeModel),
+      modelOverrides: modelOverridesForPiConfig(settings, provider.id, activeModel),
     };
   }
 
@@ -85,6 +112,15 @@ export async function writeProviderConfig(
 
   await writeOpenCodeAuth(opencodeCredentials);
   await writeOpenCodeRegistry(settings, opencodeCredentials);
+}
+
+function storedActiveModel(settings: FelixSettings): ProviderModel | null {
+  if (!settings.activeModelInputModalities) return null;
+  return {
+    id: settings.activeModel,
+    name: settings.activeModel,
+    inputModalities: settings.activeModelInputModalities,
+  };
 }
 
 export function providerEnv(settings: FelixSettings): Record<string, string> {
@@ -149,17 +185,40 @@ async function writeOpenCodeRegistry(
   await writePrivateJsonFile(OPENCODE_REGISTRY_FILE, registry);
 }
 
+function modelsForPiConfig(
+  settings: FelixSettings,
+  providerId: ProviderId,
+  activeModel: ProviderModel | null,
+): PiProviderModelConfig[] {
+  const model = activePiModelForSettings(settings, providerId, activeModel);
+  return model ? [toPiProviderModelConfig(model)] : [];
+}
+
+function modelOverridesForPiConfig(
+  settings: FelixSettings,
+  providerId: ProviderId,
+  activeModel: ProviderModel | null,
+): Record<string, PiProviderModelOverride> | undefined {
+  if (settings.activeProvider !== providerId || !activeModel?.inputModalities) return undefined;
+  return { [activeModel.id]: { input: activeModel.inputModalities } };
+}
+
+function toPiProviderModelConfig(model: ProviderModel): PiProviderModelConfig {
+  return {
+    id: model.id,
+    name: model.name,
+    input: model.inputModalities ?? ["text"],
+    cost: DEFAULT_MODEL_COST,
+    contextWindow: DEFAULT_MODEL_LIMIT.contextWindow,
+    maxTokens: DEFAULT_MODEL_LIMIT.maxTokens,
+    reasoning: isReasoningModel(model.id),
+  };
+}
+
 function modelsForRegistry(settings: FelixSettings, providerId: ProviderId): JsonRecord {
   const provider = PROVIDER_CATALOG_BY_ID[providerId];
   const supportsPiThinking = provider.modelSource !== "opencode-registry";
-  const models = provider.fallbackModels.map((model) => model);
-  if (
-    settings.activeProvider === providerId &&
-    settings.activeModel.trim().length > 0 &&
-    !models.some((model) => model.id === settings.activeModel)
-  ) {
-    models.push({ id: settings.activeModel, name: settings.activeModel });
-  }
+  const models = providerModelsForSettings(settings, providerId, null);
 
   return Object.fromEntries(
     models.map((model) => [
@@ -168,12 +227,57 @@ function modelsForRegistry(settings: FelixSettings, providerId: ProviderId): Jso
         name: model.name,
         family: inferOpenCodeFamily(model.id),
         limit: { context: 204_800, output: 131_072 },
-        modalities: { input: ["text"] },
+        modalities: { input: model.inputModalities ?? ["text"] },
         cost: { input: 0, output: 0, cache_read: 0, cache_write: 0 },
         reasoning: supportsPiThinking && isReasoningModel(model.id),
       },
     ]),
   );
+}
+
+function activePiModelForSettings(
+  settings: FelixSettings,
+  providerId: ProviderId,
+  activeModel: ProviderModel | null,
+): ProviderModel | null {
+  if (settings.activeProvider !== providerId || settings.activeModel.trim().length === 0) {
+    return null;
+  }
+  const provider = PROVIDER_CATALOG_BY_ID[providerId];
+  const activeId = settings.activeModel;
+  if (provider.fallbackModels.some((model) => model.id === activeId)) return null;
+
+  const active = activeModel?.id === activeId ? activeModel : storedActiveModel(settings);
+  if (active?.inputModalities) return active;
+  return { id: activeId, name: activeId };
+}
+
+function providerModelsForSettings(
+  settings: FelixSettings,
+  providerId: ProviderId,
+  activeModel: ProviderModel | null,
+): ProviderModel[] {
+  const provider = PROVIDER_CATALOG_BY_ID[providerId];
+  const models = provider.fallbackModels.map((model) => ({ ...model }));
+  if (settings.activeProvider !== providerId || settings.activeModel.trim().length === 0) {
+    return models;
+  }
+
+  const active =
+    activeModel?.id === settings.activeModel
+      ? activeModel
+      : {
+          id: settings.activeModel,
+          name: settings.activeModel,
+          inputModalities: settings.activeModelInputModalities ?? undefined,
+        };
+  const existingIndex = models.findIndex((model) => model.id === active.id);
+  if (existingIndex === -1) {
+    models.push(active);
+  } else {
+    models[existingIndex] = { ...models[existingIndex], ...active };
+  }
+  return models;
 }
 
 function inferOpenCodeFamily(modelId: string): string {

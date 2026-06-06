@@ -30,7 +30,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 const useIsoLayoutEffect =
   typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
-const DEFAULT_ACCEPT = "image/png,image/jpeg,application/pdf";
+const DEFAULT_ACCEPT = "image/png,image/jpeg,image/gif,image/webp,application/pdf";
 
 interface InputMessageSlotContext {
   /** Opens the native file picker via the hidden `<input type="file">`.

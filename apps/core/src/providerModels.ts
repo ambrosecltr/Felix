@@ -4,6 +4,7 @@ import * as path from "node:path";
 import {
   PROVIDER_CATALOG_BY_ID,
   ProviderModelsRequest,
+  type ProviderInputModality,
   type ProviderId,
   type ProviderCatalogEntry,
   type ProviderModel,
@@ -211,10 +212,11 @@ async function readOpenCodeRegistryModels(providerId: ProviderId): Promise<Provi
 
 function normalizeOpenCodeRegistryModel(modelId: string, entry: unknown): ProviderModel | null {
   if (!isRecord(entry)) return null;
-  return {
+  const inputModalities = readModalitiesInput(entry);
+  return withOptionalInputModalities({
     id: modelId,
     name: readStringProperty(entry, "name") ?? makeDisplayName(modelId),
-  };
+  }, inputModalities);
 }
 
 async function firstExistingFile(paths: readonly string[]): Promise<string | null> {
@@ -233,10 +235,11 @@ function normalizeModel(providerId: ProviderId, entry: unknown): ProviderModel |
   if (!isRecord(entry)) return null;
   const id = readStringProperty(entry, "id");
   if (!id || !isChatModel(providerId, id, entry)) return null;
-  return {
+  const inputModalities = readModelInputModalities(entry);
+  return withOptionalInputModalities({
     id,
     name: readStringProperty(entry, "name") ?? makeDisplayName(id),
-  };
+  }, inputModalities);
 }
 
 function isChatModel(providerId: ProviderId, id: string, entry: Record<string, unknown>): boolean {
@@ -272,6 +275,40 @@ function dedupeModels(models: ProviderModel[]): ProviderModel[] {
     deduped.push(model);
   }
   return deduped;
+}
+
+function withOptionalInputModalities(
+  model: Pick<ProviderModel, "id" | "name">,
+  inputModalities: ProviderInputModality[] | null,
+): ProviderModel {
+  if (!inputModalities) return model;
+  return { ...model, inputModalities };
+}
+
+function readModelInputModalities(entry: Record<string, unknown>): ProviderInputModality[] | null {
+  const architecture = readRecordProperty(entry, "architecture");
+  return (
+    normalizeInputModalities(architecture ? readStringArrayProperty(architecture, "input_modalities") : null) ??
+    normalizeInputModalities(readStringArrayProperty(entry, "input_modalities")) ??
+    readModalitiesInput(entry)
+  );
+}
+
+function readModalitiesInput(entry: Record<string, unknown>): ProviderInputModality[] | null {
+  const modalities = readRecordProperty(entry, "modalities");
+  return modalities ? normalizeInputModalities(readStringArrayProperty(modalities, "input")) : null;
+}
+
+function normalizeInputModalities(values: string[] | null): ProviderInputModality[] | null {
+  if (!values) return null;
+  const modalities: ProviderInputModality[] = [];
+  for (const value of values) {
+    const normalized = value.toLowerCase();
+    if ((normalized === "text" || normalized === "image") && !modalities.includes(normalized)) {
+      modalities.push(normalized);
+    }
+  }
+  return modalities.length > 0 ? modalities : null;
 }
 
 function makeDisplayName(modelId: string): string {

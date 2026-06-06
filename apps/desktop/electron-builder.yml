@@ -16,6 +16,7 @@ afterPack: scripts/copy-agent-after-pack.cjs
 files:
   - dist/**/*
   - package.json
+  - "!node_modules/**"
   - "!**/*.map"
 
 # Ship the bundled standalone Node + bun runtimes, the self-contained PI agent

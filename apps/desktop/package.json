@@ -13,8 +13,7 @@
   },
   "dependencies": {
     "@felix/contracts": "*",
-    "@felix/core": "*",
-    "@earendil-works/pi-coding-agent": "^0.78.0"
+    "@felix/core": "*"
   },
   "devDependencies": {
     "@felix/web": "*",

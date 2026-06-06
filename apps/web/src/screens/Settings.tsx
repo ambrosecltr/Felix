@@ -105,18 +105,32 @@ export function Settings() {
 
   useEffect(() => {
     if (!settings || !modelResult || modelResult.providerId !== settings.activeProvider) return;
-    if (modelResult.models.some((model) => model.id === settings.activeModel)) return;
+    const currentModel = modelResult.models.find((model) => model.id === settings.activeModel);
+    if (currentModel) {
+      const nextInputModalities = currentModel.inputModalities ?? null;
+      if (sameInputModalities(settings.activeModelInputModalities, nextInputModalities)) return;
+      setSettings((current) => {
+        if (!current || current.activeProvider !== modelResult.providerId) return current;
+        if (current.activeModel !== currentModel.id) return current;
+        return { ...current, activeModelInputModalities: nextInputModalities };
+      });
+      return;
+    }
 
     const provider = PROVIDER_CATALOG_BY_ID[settings.activeProvider];
     const nextModel =
-      modelResult.models.find((model) => model.id === provider.defaultModel)?.id ??
-      modelResult.models[0]?.id;
+      modelResult.models.find((model) => model.id === provider.defaultModel) ??
+      modelResult.models[0];
     if (!nextModel) return;
 
     setSettings((current) => {
       if (!current || current.activeProvider !== modelResult.providerId) return current;
-      if (current.activeModel === nextModel) return current;
-      return { ...current, activeModel: nextModel };
+      if (current.activeModel === nextModel.id) return current;
+      return {
+        ...current,
+        activeModel: nextModel.id,
+        activeModelInputModalities: nextModel.inputModalities ?? null,
+      };
     });
   }, [modelResult, settings]);
 
@@ -156,7 +170,21 @@ export function Settings() {
     const provider = PROVIDER_CATALOG_BY_ID[id];
     setModelResult(null);
     setLoadingModels(false);
-    setSettings({ ...settings, activeProvider: id, activeModel: provider.defaultModel });
+    setSettings({
+      ...settings,
+      activeProvider: id,
+      activeModel: provider.defaultModel,
+      activeModelInputModalities: null,
+    });
+  };
+
+  const setModel = (id: string) => {
+    const model = modelOptions.find((option) => option.id === id);
+    setSettings({
+      ...settings,
+      activeModel: id,
+      activeModelInputModalities: model?.inputModalities ?? null,
+    });
   };
 
   const setIconGeneration = (iconSettings: FelixSettings["iconGeneration"]) => {
@@ -240,7 +268,7 @@ export function Settings() {
               <div className="flex gap-2">
                 <Select
                   value={selectedModelValue}
-                  onValueChange={(value) => setSettings({ ...settings, activeModel: value })}
+                  onValueChange={setModel}
                   disabled={!canLoadModels || loadingModels || modelOptions.length === 0}
                 >
                   <SelectTrigger
@@ -376,6 +404,15 @@ function modelsFor(
   modelResult: ProviderModelsResponse | null,
 ): ProviderModel[] {
   return modelResult?.providerId === settings.activeProvider ? [...modelResult.models] : [];
+}
+
+function sameInputModalities(
+  left: FelixSettings["activeModelInputModalities"],
+  right: FelixSettings["activeModelInputModalities"],
+): boolean {
+  if (left === right) return true;
+  if (!left || !right || left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
 }
 
 function modelStatusText(

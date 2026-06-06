@@ -11,9 +11,13 @@ export const PROVIDER_IDS = [
 export const ProviderId = z.enum(PROVIDER_IDS);
 export type ProviderId = z.infer<typeof ProviderId>;
 
+export const ProviderInputModality = z.enum(["text", "image"]);
+export type ProviderInputModality = z.infer<typeof ProviderInputModality>;
+
 export const ProviderModel = z.object({
   id: z.string(),
   name: z.string(),
+  inputModalities: ProviderInputModality.array().optional(),
 });
 export type ProviderModel = z.infer<typeof ProviderModel>;
 

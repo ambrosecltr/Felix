@@ -11,9 +11,11 @@ import {
   FelixSettings,
   MAX_CHAT_ATTACHMENT_BYTES,
   MiniAppManifest,
+  PROVIDER_CATALOG_BY_ID,
   type MiniAppStatus,
   type MiniAppSummary,
   type MiniAppIconDataResponse,
+  type ProviderInputModality,
   type ProviderModelsRequest,
   type PushEvent,
 } from "@felix/contracts";
@@ -23,6 +25,12 @@ import { felixPaths, miniAppPaths } from "@felix/shared/paths";
 import { templateFiles } from "@felix/mini-app-template/files";
 import { AgentManager } from "./agentManager.ts";
 import { bundledBunPath, resolveBun } from "./bunRuntime.ts";
+import {
+  type AttachmentImagePromptNote,
+  prepareAttachmentImages,
+  type ResizeImage,
+  supportsNativeImageInput,
+} from "./chatAttachmentImages.ts";
 import { ChatStore } from "./chatStore.ts";
 import {
   checkIconGenerationSetup,
@@ -38,6 +46,8 @@ import { ViteManager } from "./viteManager.ts";
 export interface MiniAppManagerOptions {
   /** Directory containing bundled resources (e.g. a standalone Node runtime). */
   resourcesDir?: string;
+  /** Optional platform image resizer for model-native image attachments. */
+  resizeImage?: ResizeImage;
 }
 
 type Emit = (event: PushEvent) => void;
@@ -64,12 +74,14 @@ export class MiniAppManager {
   private iconGenerationRequests = new Map<string, string>();
   private iconGenerationRunning = new Set<string>();
   private readonly bunBin: string;
+  private readonly resizeImage: ResizeImage | undefined;
 
   constructor(
     private readonly piBinPath: string,
     private readonly emit: Emit,
     options: MiniAppManagerOptions = {},
   ) {
+    this.resizeImage = options.resizeImage;
     const nodeBin = resolveMiniAppNode({
       bundledNodePath: options.resourcesDir
         ? bundledNodePath(options.resourcesDir)
@@ -422,6 +434,20 @@ export class MiniAppManager {
     if (!manifest) throw new Error(`Mini app not found: ${appId}`);
 
     const attachments = await this.persistChatAttachments(dir, attachmentInputs);
+    const settings = await this.settings.get();
+    const activeModelInputModalities = await this.resolveActiveModelInputModalities(
+      settings,
+      attachments,
+    );
+    if (settings.activeModelInputModalities === null && activeModelInputModalities !== null) {
+      await this.restartIdleAgent(appId);
+    }
+    const preparedImages = await prepareAttachmentImages(
+      dir,
+      attachments,
+      supportsNativeImageInput(activeModelInputModalities),
+      this.resizeImage,
+    );
     await this.agent.start(appId, dir, manifest.name);
 
     const store = this.chatStore(appId);
@@ -433,7 +459,11 @@ export class MiniAppManager {
     manifest.updatedAt = new Date().toISOString();
     await this.writeManifest(manifest);
 
-    this.agent.prompt(appId, promptWithAttachments(text, attachments));
+    this.agent.prompt(
+      appId,
+      promptWithAttachments(text, attachments, preparedImages.notes),
+      preparedImages.images,
+    );
   }
 
   private async persistChatAttachments(
@@ -472,6 +502,57 @@ export class MiniAppManager {
     }
 
     return attachments;
+  }
+
+  private async resolveActiveModelInputModalities(
+    settings: FelixSettings,
+    attachments: ChatAttachment[],
+  ): Promise<ProviderInputModality[] | null> {
+    if (!attachments.some((attachment) => attachment.mimeType.startsWith("image/"))) {
+      return settings.activeModelInputModalities;
+    }
+    if (settings.activeModelInputModalities) return settings.activeModelInputModalities;
+
+    const catalogModel = PROVIDER_CATALOG_BY_ID[settings.activeProvider].fallbackModels.find(
+      (model) => model.id === settings.activeModel,
+    );
+    if (catalogModel?.inputModalities) {
+      const inputModalities = [...catalogModel.inputModalities];
+      await this.rememberActiveModelInputModalities(settings, inputModalities);
+      return inputModalities;
+    }
+
+    const provider = settings.providers.find((candidate) => candidate.id === settings.activeProvider);
+    const response = await listProviderModels({
+      providerId: settings.activeProvider,
+      apiKey: provider?.apiKey,
+      oauthAccessToken: provider?.oauth?.accessToken,
+    });
+    const activeModel = response.models.find((model) => model.id === settings.activeModel);
+    const inputModalities = activeModel?.inputModalities ?? null;
+    if (!inputModalities) return null;
+
+    await this.rememberActiveModelInputModalities(settings, inputModalities);
+    return inputModalities;
+  }
+
+  private async rememberActiveModelInputModalities(
+    settings: FelixSettings,
+    inputModalities: ProviderInputModality[],
+  ): Promise<void> {
+    const latest = await this.settings.get();
+    if (
+      latest.activeProvider === settings.activeProvider &&
+      latest.activeModel === settings.activeModel &&
+      latest.activeModelInputModalities === null
+    ) {
+      await this.settings.set({ ...latest, activeModelInputModalities: inputModalities });
+    }
+  }
+
+  private async restartIdleAgent(appId: string): Promise<void> {
+    if (this.agent.isStreaming(appId)) return;
+    await this.agent.stop(appId);
   }
 
   abortChat(appId: string): void {
@@ -662,19 +743,35 @@ function safeAppRelativePath(appDir: string, relativePath: string): string {
   return resolved;
 }
 
-function promptWithAttachments(text: string, attachments: ChatAttachment[]): string {
+export function promptWithAttachments(
+  text: string,
+  attachments: ChatAttachment[],
+  imageNotes: AttachmentImagePromptNote[] = [],
+): string {
   const trimmed = text.trim();
   if (attachments.length === 0) return trimmed;
+  const notesByAttachmentId = groupAttachmentNotes(imageNotes);
 
   const attachmentLines = attachments
-    .map(
-      (attachment) =>
-        `- ${attachment.name} (${attachment.mimeType}, ${formatBytes(attachment.size)}): ${attachment.relativePath}`,
-    )
+    .map((attachment) => {
+      const base = `- ${attachment.name} (${attachment.mimeType}, ${formatBytes(attachment.size)}): ${attachment.relativePath}`;
+      const notes = notesByAttachmentId.get(attachment.id);
+      return notes ? `${base}\n  ${notes.join("\n  ")}` : base;
+    })
     .join("\n");
 
   const prefix = trimmed.length > 0 ? `${trimmed}\n\n` : "";
   return `${prefix}Attached files are saved in this app workspace:\n${attachmentLines}\n\nRead those files as needed before making changes.`;
+}
+
+function groupAttachmentNotes(notes: AttachmentImagePromptNote[]): Map<string, string[]> {
+  const grouped = new Map<string, string[]>();
+  for (const { attachmentId, note } of notes) {
+    const current = grouped.get(attachmentId) ?? [];
+    current.push(note);
+    grouped.set(attachmentId, current);
+  }
+  return grouped;
 }
 
 function checkpointMessage(text: string, attachments: ChatAttachment[]): string {

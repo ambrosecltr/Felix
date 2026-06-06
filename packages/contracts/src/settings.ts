@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PROVIDER_CATALOG_BY_ID, ProviderId } from "./providers.ts";
+import { PROVIDER_CATALOG_BY_ID, ProviderId, ProviderInputModality } from "./providers.ts";
 
 export const ProviderOAuthConfig = z.object({
   accessToken: z.string().default(""),
@@ -25,6 +25,7 @@ export type IconGenerationSettings = z.infer<typeof IconGenerationSettings>;
 export const FelixSettings = z.object({
   activeProvider: ProviderId.default("openrouter"),
   activeModel: z.string().default("anthropic/claude-3.5-sonnet"),
+  activeModelInputModalities: ProviderInputModality.array().nullable().default(null),
   providers: z.array(ProviderConfig).default([]),
   iconGeneration: IconGenerationSettings.default({
     enabled: false,
@@ -38,6 +39,7 @@ export type FelixSettings = z.infer<typeof FelixSettings>;
 export const DEFAULT_SETTINGS: FelixSettings = {
   activeProvider: "openrouter",
   activeModel: PROVIDER_CATALOG_BY_ID.openrouter.defaultModel,
+  activeModelInputModalities: null,
   providers: [],
   iconGeneration: {
     enabled: false,

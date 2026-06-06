@@ -32,7 +32,6 @@
       "name": "@felix/desktop",
       "version": "0.0.2",
       "dependencies": {
-        "@earendil-works/pi-coding-agent": "^0.78.0",
         "@felix/contracts": "*",
         "@felix/core": "*",
       },

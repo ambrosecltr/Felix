@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatStep, ChatTurn, ExtensionUiResponse } from "@felix/contracts";
 import { filesToChatAttachments } from "../lib/message-attachments.ts";
 import { type IconName, useIcon } from "../lib/icon-context.tsx";
@@ -15,6 +15,8 @@ import {
   ThinkingStepsContent,
   ThinkingStepsHeader,
 } from "./ui/thinking-steps.tsx";
+
+const CHAT_AUTO_SCROLL_THRESHOLD_PX = 96;
 
 export function BuildChat({ appId }: { appId: string }) {
   const {
@@ -34,12 +36,26 @@ export function BuildChat({ appId }: { appId: string }) {
   const thinking = felixThinking[appId] ?? false;
   const activeRequest = uiRequests[appId]?.[0];
   const scrollRef = useRef<HTMLDivElement>(null);
+  const shouldStickToBottomRef = useRef(true);
   const PaperclipIcon = useIcon("paperclip");
   const TrashIcon = useIcon("trash");
 
+  const updateScrollStickiness = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    shouldStickToBottomRef.current = distanceFromBottom <= CHAT_AUTO_SCROLL_THRESHOLD_PX;
+  }, []);
+
+  const scrollToBottomIfStuck = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el || !shouldStickToBottomRef.current) return;
+    el.scrollTo({ top: el.scrollHeight });
+  }, []);
+
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [turns, thinking, activeRequest]);
+    scrollToBottomIfStuck();
+  }, [turns, thinking, activeRequest, scrollToBottomIfStuck]);
 
   const submit = async (value: string, attachedFiles: File[]) => {
     const trimmed = value.trim();
@@ -89,7 +105,11 @@ export function BuildChat({ appId }: { appId: string }) {
         </Button>
       </div>
 
-      <div ref={scrollRef} className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
+      <div
+        ref={scrollRef}
+        className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4"
+        onScroll={updateScrollStickiness}
+      >
         {turns.length === 0 ? (
           <div className="flex min-h-full items-center justify-center text-center">
             <div className="max-w-[240px]">
@@ -253,42 +273,12 @@ function answerToResponse(id: string, answer: AskUserAnswer | undefined): Extens
 function TurnView({ turn }: { turn: ChatTurn }) {
   if (turn.role === "kid") {
     return (
-      <ChatMessage from="user">
-        <div className="flex flex-col gap-2">
-          {turn.text && <Markdown text={turn.text} />}
-          <AttachmentList attachments={turn.attachments} />
-        </div>
+      <ChatMessage from="user" attachments={turn.attachments}>
+        {turn.text ? <Markdown text={turn.text} /> : null}
       </ChatMessage>
     );
   }
   return <FelixTurn turn={turn} />;
-}
-
-function AttachmentList({ attachments }: { attachments: ChatTurn["attachments"] }) {
-  const PaperclipIcon = useIcon("paperclip");
-  if (attachments.length === 0) return null;
-
-  return (
-    <div className="flex flex-col gap-1">
-      {attachments.map((attachment) => (
-        <div
-          key={attachment.id}
-          className="flex min-w-0 items-center gap-2 rounded-2xl bg-background/55 px-2.5 py-1.5 text-xs text-muted-foreground"
-        >
-          <PaperclipIcon size={14} />
-          <span className="min-w-0 truncate">{attachment.name}</span>
-          <span className="shrink-0">{formatAttachmentSize(attachment.size)}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function formatAttachmentSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const kilobytes = bytes / 1024;
-  if (kilobytes < 1024) return `${kilobytes.toFixed(1)} KB`;
-  return `${(kilobytes / 1024).toFixed(1)} MB`;
 }
 
 function FelixTurn({ turn }: { turn: ChatTurn }) {
@@ -306,7 +296,7 @@ function WorkingSteps({ turn }: { turn: ChatTurn }) {
   return (
     <div className="flex w-full flex-col">
       <ThinkingSteps className="w-full max-w-full">
-        <ThinkingStepsHeader />
+        <ThinkingStepsHeader>Working</ThinkingStepsHeader>
         <ThinkingStepsContent>
           {items.map((item, index) => renderThinkingItem(item, index, index === items.length - 1))}
         </ThinkingStepsContent>
@@ -536,7 +526,7 @@ function groupedDetailsSummary(group: ToolGroupItem): string {
 
 function pendingActivityLabel(steps: ChatStep[]): string {
   const last = steps[steps.length - 1];
-  if (!last) return "Thinking";
+  if (!last) return "Working";
   if (last.type === "tool" && last.isError !== undefined) return "Planning next step";
-  return "Thinking";
+  return "Working";
 }

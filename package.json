@@ -13,6 +13,7 @@
     "typecheck": "turbo run typecheck",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist packages/*/dist .turbo apps/*/.turbo packages/*/.turbo",
     "dev:desktop": "turbo run dev --filter=@felix/desktop",
+    "test": "bun test packages/contracts/test apps/core/test",
     "setup:runtime": "node scripts/fetch-node-runtime.mjs",
     "setup:bun": "node scripts/fetch-bun-runtime.mjs",
     "bundle:agent": "node scripts/bundle-agent.mjs",
