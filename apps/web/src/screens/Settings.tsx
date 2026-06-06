@@ -213,7 +213,7 @@ export function Settings() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="drag-region flex h-12 items-center justify-between border-b border-border pl-20 pr-3">
+      <header className="drag-region flex h-12 items-center justify-between border-b border-border pl-28 pr-3">
         <span className="text-sm font-semibold tracking-tight">Settings</span>
         <Button variant="ghost" size="sm" onClick={goDashboard}>
           Done

@@ -7,6 +7,17 @@ import {
   type PushEvent,
 } from "@felix/contracts";
 
+function markElectronRuntime(): void {
+  const root = document.documentElement;
+  if (!root) {
+    window.addEventListener("DOMContentLoaded", markElectronRuntime, { once: true });
+    return;
+  }
+  root.dataset.felixRuntime = "electron";
+}
+
+markElectronRuntime();
+
 interface ViewBounds {
   x: number;
   y: number;

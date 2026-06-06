@@ -175,6 +175,12 @@ body {
   overflow: hidden;
 }
 
+html[data-felix-runtime="electron"] *,
+html[data-felix-runtime="electron"] *::before,
+html[data-felix-runtime="electron"] *::after {
+  -electron-corner-smoothing: system-ui;
+}
+
 pre,
 code {
   font-family: var(--font-mono);

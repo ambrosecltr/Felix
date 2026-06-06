@@ -30,6 +30,8 @@ extraResources:
     to: bun
   - from: resources/agent
     to: agent
+  - from: resources/native
+    to: native
   - from: resources/icon.icns
     to: icon.icns
 

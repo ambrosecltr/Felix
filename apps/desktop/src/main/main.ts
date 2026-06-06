@@ -5,7 +5,9 @@ import { MiniAppManager, resolvePiBin } from "@felix/core";
 import { PUSH_CHANNEL, type PushEvent } from "@felix/contracts";
 import { resizeImageForModel } from "./imageResize.ts";
 import { registerIpc } from "./ipc.ts";
+import { applyMacosWindowChrome } from "./macosWindowChrome.ts";
 import { MiniAppView } from "./miniAppView.ts";
+import { persistWindowState, readWindowState } from "./windowState.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -31,9 +33,10 @@ function appIconPath(): string {
 }
 
 function createWindow(): void {
+  const appResourcesDir = resourcesDir();
+  const windowState = readWindowState();
   const window = new BrowserWindow({
-    width: 1200,
-    height: 820,
+    ...windowState,
     minWidth: 940,
     minHeight: 640,
     show: false,
@@ -41,6 +44,7 @@ function createWindow(): void {
     title: "Felix",
     icon: nativeImage.createFromPath(appIconPath()),
     titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 16, y: 18 },
     webPreferences: {
       preload: path.join(__dirname, "../preload/preload.cjs"),
       contextIsolation: true,
@@ -48,12 +52,15 @@ function createWindow(): void {
       sandbox: true,
     },
   });
+  applyMacosWindowChrome(window, appResourcesDir);
+  persistWindowState(window);
   mainWindow = window;
   const view = new MiniAppView(window);
   miniAppView = view;
 
   window.once("ready-to-show", () => {
-    if (!window.isDestroyed()) window.show();
+    if (window.isDestroyed()) return;
+    window.show();
   });
 
   window.once("close", () => {

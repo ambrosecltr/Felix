@@ -50,7 +50,7 @@ export function MiniAppScreen({ appId }: { appId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="drag-region flex h-12 items-center gap-2 border-b border-border pl-20 pr-3">
+      <header className="drag-region flex h-12 items-center gap-2 border-b border-border pl-28 pr-3">
         <Button variant="ghost" size="sm" leadingIcon={AppsIcon} onClick={goDashboard}>
           Apps
         </Button>
