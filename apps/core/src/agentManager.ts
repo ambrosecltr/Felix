@@ -4,9 +4,11 @@ import * as path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import {
   PROVIDER_CATALOG_BY_ID,
+  TokenUsage,
   type AgentEvent,
   type ExtensionUiResponse,
   type FelixSettings,
+  type TokenUsage as TokenUsageData,
 } from "@felix/contracts";
 import { FELIX_SYSTEM_PROMPT, felixWorkspaceFiles } from "./agentPrompt.ts";
 import type { AgentImageContent } from "./chatAttachmentImages.ts";
@@ -260,6 +262,15 @@ export class AgentManager {
         const message = event.message;
         if (isRecord(message) && message.role === "assistant") {
           this.enqueueToolDetails(appId, message);
+          const tokenUsage = readAgentTokenUsageEvent(event);
+          if (tokenUsage) {
+            this.onEvent(appId, {
+              type: "token_usage",
+              usageId: tokenUsage.usageId,
+              createdAt: tokenUsage.createdAt,
+              usage: tokenUsage.usage,
+            });
+          }
           const errorMessage = readString(message.errorMessage);
           if (errorMessage) this.onEvent(appId, { type: "error", message: errorMessage });
         }
@@ -505,6 +516,97 @@ function readString(value: unknown): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function readAgentTokenUsageEvent(
+  event: Record<string, unknown>,
+): { usageId: string; createdAt: string; usage: TokenUsageData } | null {
+  if (event.type !== "message" || !isRecord(event.message)) return null;
+
+  const message = event.message;
+  if (message.role !== "assistant") return null;
+
+  const usage =
+    readTokenUsage(message.usage) ??
+    readTokenUsage(message.tokenUsage) ??
+    readTokenUsage(event.usage) ??
+    readTokenUsage(event.tokenUsage);
+  if (!usage) return null;
+
+  const usageId =
+    readString(event.id) ??
+    readString(message.responseId) ??
+    readString(event.responseId) ??
+    readString(message.id);
+  if (!usageId) return null;
+
+  return {
+    usageId,
+    createdAt: readTimestamp(event.timestamp) ?? readTimestamp(message.timestamp) ?? new Date().toISOString(),
+    usage,
+  };
+}
+
+function readTokenUsage(value: unknown): TokenUsageData | null {
+  if (!isRecord(value)) return null;
+
+  const input = readUsageInteger(value, ["input", "inputTokens", "input_tokens", "prompt_tokens"]);
+  const output = readUsageInteger(value, [
+    "output",
+    "outputTokens",
+    "output_tokens",
+    "completion_tokens",
+  ]);
+  const cacheRead = readUsageInteger(value, [
+    "cacheRead",
+    "cache_read",
+    "cachedTokens",
+    "cached_tokens",
+    "cache_read_input_tokens",
+  ]);
+  const cacheWrite = readUsageInteger(value, [
+    "cacheWrite",
+    "cache_write",
+    "cache_write_input_tokens",
+  ]);
+  const totalTokens =
+    readUsageInteger(value, ["totalTokens", "total_tokens"]) ??
+    (input ?? 0) + (output ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0);
+
+  if (totalTokens <= 0) return null;
+
+  return TokenUsage.parse({
+    input: input ?? 0,
+    output: output ?? 0,
+    cacheRead: cacheRead ?? 0,
+    cacheWrite: cacheWrite ?? 0,
+    totalTokens,
+  });
+}
+
+function readUsageInteger(record: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+      return Math.trunc(value);
+    }
+    if (typeof value === "string" && /^\d+$/.test(value)) {
+      return Number(value);
+    }
+  }
+  return null;
+}
+
+function readTimestamp(value: unknown): string | null {
+  if (typeof value === "string") {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) return date.toISOString();
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) return date.toISOString();
+  }
+  return null;
 }
 
 function waitForExit(child: ChildProcess, timeoutMs: number): Promise<void> {

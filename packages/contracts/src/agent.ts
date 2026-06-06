@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TokenUsage } from "./profile.ts";
 
 export const ChatRole = z.enum(["kid", "felix", "system"]);
 export type ChatRole = z.infer<typeof ChatRole>;
@@ -35,6 +36,12 @@ export const AgentEvent = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("agent_start") }),
   z.object({ type: z.literal("agent_end") }),
+  z.object({
+    type: z.literal("token_usage"),
+    usageId: z.string(),
+    createdAt: z.string(),
+    usage: TokenUsage,
+  }),
   z.object({ type: z.literal("error"), message: z.string() }),
 ]);
 export type AgentEvent = z.infer<typeof AgentEvent>;

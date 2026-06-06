@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import type { MiniAppManager } from "@felix/core";
-import { MiniAppIconRequest, SendChatRequest } from "@felix/contracts";
+import { MiniAppIconRequest, SendChatRequest, SetProfileNameRequest } from "@felix/contracts";
 import type { ExtensionUiResponse, FelixApiChannel } from "@felix/contracts";
 import type { MiniAppView, ViewBounds } from "./miniAppView.ts";
 
@@ -41,6 +41,8 @@ export function registerIpc(manager: MiniAppManager, getView: () => MiniAppView 
 
   handle("settings.get", () => manager.getSettings());
   handle("settings.set", (arg) => manager.setSettings(arg as never));
+  handle("profile.get", () => manager.getProfileOverview());
+  handle("profile.setName", (arg) => manager.setProfileName(SetProfileNameRequest.parse(arg)));
   handle("provider.models", (arg) => manager.listProviderModels(arg as never));
 
   // Mini app view control (not part of the typed FelixApi - main-only).

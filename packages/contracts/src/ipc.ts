@@ -14,6 +14,7 @@ import {
   MiniAppSummary,
 } from "./miniApp.ts";
 import { ProviderModelsRequest, ProviderModelsResponse } from "./providers.ts";
+import { ProfileOverview, SetProfileNameRequest } from "./profile.ts";
 import { FelixSettings } from "./settings.ts";
 
 export const CreateMiniAppRequest = z.object({
@@ -59,6 +60,8 @@ export interface FelixApi {
   "checkpoint.restore": [RestoreCheckpointRequest, void];
   "settings.get": [void, FelixSettings];
   "settings.set": [FelixSettings, FelixSettings];
+  "profile.get": [void, ProfileOverview];
+  "profile.setName": [SetProfileNameRequest, ProfileOverview];
   "provider.models": [ProviderModelsRequest, ProviderModelsResponse];
 }
 
@@ -90,6 +93,10 @@ export const PushEvent = z.discriminatedUnion("kind", [
     kind: z.literal("miniAppUpdated"),
     appId: z.string(),
     summary: MiniAppSummary,
+  }),
+  z.object({
+    kind: z.literal("profileUpdated"),
+    profile: ProfileOverview,
   }),
 ]);
 export type PushEvent = z.infer<typeof PushEvent>;

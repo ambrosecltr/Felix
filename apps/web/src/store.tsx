@@ -14,6 +14,7 @@ import type {
   ExtensionUiResponse,
   MiniAppStatus,
   MiniAppSummary,
+  ProfileOverview,
 } from "@felix/contracts";
 import { felix } from "./bridge.ts";
 
@@ -29,8 +30,12 @@ interface StoreValue {
   chats: Record<string, ChatTurn[]>;
   felixThinking: Record<string, boolean>;
   uiRequests: Record<string, UiRequest[]>;
+  profileOverview: ProfileOverview | null;
+  profileLoading: boolean;
   goDashboard: () => void;
   goSettings: () => void;
+  refreshProfile: () => Promise<void>;
+  setProfileName: (name: string) => Promise<void>;
   openApp: (appId: string) => Promise<void>;
   createApp: (prompt: string, attachments?: ChatAttachmentInput[]) => Promise<void>;
   deleteApp: (appId: string) => Promise<void>;
@@ -54,6 +59,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [chats, setChats] = useState<Record<string, ChatTurn[]>>({});
   const [felixThinking, setFelixThinking] = useState<Record<string, boolean>>({});
   const [uiRequests, setUiRequests] = useState<Record<string, UiRequest[]>>({});
+  const [profileOverview, setProfileOverview] = useState<ProfileOverview | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
 
   const refreshApps = useCallback(async () => {
     const list = await felix.invoke("miniApp.list", undefined);
@@ -63,6 +70,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refreshApps();
   }, [refreshApps]);
+
+  const refreshProfile = useCallback(async () => {
+    setProfileLoading(true);
+    try {
+      const profile = await felix.invoke("profile.get", undefined);
+      setProfileOverview(profile);
+    } finally {
+      setProfileLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshProfile();
+  }, [refreshProfile]);
 
   useEffect(() => {
     return felix.onPush((event) => {
@@ -80,6 +101,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setApps((prev) =>
           prev.map((a) => (a.id === event.appId ? event.summary : a)),
         );
+      } else if (event.kind === "profileUpdated") {
+        setProfileOverview(event.profile);
+        setProfileLoading(false);
       } else if (event.kind === "agent") {
         const e = event.event;
         if (e.type === "agent_start") {
@@ -318,6 +342,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const setProfileName = useCallback(async (name: string) => {
+    const profile = await felix.invoke("profile.setName", { name });
+    setProfileOverview(profile);
+    setProfileLoading(false);
+  }, []);
+
   const value = useMemo<StoreValue>(
     () => ({
       view,
@@ -326,8 +356,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       chats,
       felixThinking,
       uiRequests,
+      profileOverview,
+      profileLoading,
       goDashboard: () => setView({ name: "dashboard" }),
       goSettings: () => setView({ name: "settings" }),
+      refreshProfile,
+      setProfileName,
       openApp,
       createApp,
       deleteApp,
@@ -343,6 +377,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       chats,
       felixThinking,
       uiRequests,
+      profileOverview,
+      profileLoading,
+      refreshProfile,
+      setProfileName,
       openApp,
       createApp,
       deleteApp,

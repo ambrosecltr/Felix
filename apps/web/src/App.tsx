@@ -1,6 +1,7 @@
 import { Dashboard } from "./screens/Dashboard.tsx";
 import { MiniAppScreen } from "./screens/MiniAppScreen.tsx";
 import { Settings } from "./screens/Settings.tsx";
+import { ProfileNameDialog } from "./components/ProfileNameDialog.tsx";
 import { useStore } from "./store.tsx";
 
 export function App() {
@@ -11,6 +12,7 @@ export function App() {
       {view.name === "dashboard" && <Dashboard />}
       {view.name === "settings" && <Settings />}
       {view.name === "miniApp" && <MiniAppScreen appId={view.appId} />}
+      <ProfileNameDialog />
     </div>
   );
 }

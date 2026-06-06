@@ -18,12 +18,13 @@ import {
   type ProviderInputModality,
   type ProviderModelsRequest,
   type PushEvent,
+  type SetProfileNameRequest,
 } from "@felix/contracts";
 import * as git from "@felix/shared/git";
 import { newId, slugify } from "@felix/shared/ids";
 import { felixPaths, miniAppPaths } from "@felix/shared/paths";
 import { templateFiles } from "@felix/mini-app-template/files";
-import { AgentManager } from "./agentManager.ts";
+import { AgentManager, readAgentTokenUsageEvent } from "./agentManager.ts";
 import { bundledBunPath, resolveBun } from "./bunRuntime.ts";
 import {
   type AttachmentImagePromptNote,
@@ -39,6 +40,7 @@ import {
 } from "./iconGeneration.ts";
 import { bundledNodePath, resolveMiniAppNode } from "./nodeRuntime.ts";
 import { listProviderModels } from "./providerModels.ts";
+import { ProfileStore } from "./profileStore.ts";
 import { resolvePiPackageDir } from "./resolvePi.ts";
 import { SettingsStore } from "./settingsStore.ts";
 import { ViteManager } from "./viteManager.ts";
@@ -51,6 +53,7 @@ export interface MiniAppManagerOptions {
 }
 
 type Emit = (event: PushEvent) => void;
+type AgentTokenUsageEvent = NonNullable<ReturnType<typeof readAgentTokenUsageEvent>>;
 const INSTALL_TIMEOUT_MS = 5 * 60_000;
 const DELETE_MAX_RETRIES = 10;
 const DELETE_RETRY_DELAY_MS = 100;
@@ -64,6 +67,7 @@ const ICON_MIME_EXTENSIONS: Record<string, string> = {
 export class MiniAppManager {
   private readonly paths = felixPaths();
   private readonly settings = new SettingsStore();
+  private readonly profile = new ProfileStore(this.paths.profileFile, this.paths.tokenUsageFile);
   private readonly vite: ViteManager;
   private readonly agent: AgentManager;
   private statuses = new Map<string, MiniAppStatus>();
@@ -592,6 +596,16 @@ export class MiniAppManager {
     return this.settings.set(normalized);
   }
 
+  async getProfileOverview() {
+    await this.backfillTokenUsageFromSessions();
+    return this.profileOverview();
+  }
+
+  async setProfileName(request: SetProfileNameRequest) {
+    await this.profile.setName(request.name);
+    return this.getProfileOverview();
+  }
+
   listProviderModels(request: ProviderModelsRequest) {
     return listProviderModels(request);
   }
@@ -654,8 +668,35 @@ export class MiniAppManager {
   }
 
   private handleAgentEvent(appId: string, event: AgentEvent): void {
+    if (event.type === "token_usage") {
+      void this.recordTokenUsage(appId, event);
+      return;
+    }
+
     this.emit({ kind: "agent", appId, event });
     if (event.type !== "extension_ui_request") this.enqueuePersist(appId, event);
+  }
+
+  private async recordTokenUsage(
+    appId: string,
+    event: Extract<AgentEvent, { type: "token_usage" }>,
+  ): Promise<void> {
+    try {
+      const didRecord = await this.profile.recordTokenUsage(
+        appId,
+        event.usageId,
+        event.createdAt,
+        event.usage,
+      );
+      if (didRecord) {
+        this.emit({ kind: "profileUpdated", profile: await this.profileOverview() });
+      }
+    } catch (error) {
+      console.warn(
+        "[felix] failed to record token usage",
+        error instanceof Error ? error.message : error,
+      );
+    }
   }
 
   /**
@@ -691,6 +732,9 @@ export class MiniAppManager {
       case "agent_end":
         await store.finishTurn("done");
         await this.syncAboutFile(appId);
+        if (await this.backfillTokenUsageFromSessions([appId])) {
+          this.emit({ kind: "profileUpdated", profile: await this.profileOverview() });
+        }
         return;
       case "error":
         await store.failFelixTurn(`Oops, something went wrong. ${event.message}`);
@@ -704,6 +748,52 @@ export class MiniAppManager {
     this.agent.stopAll();
     this.vite.stopAll();
     for (const appId of [...this.aboutWatchers.keys()]) this.unwatchAbout(appId);
+  }
+
+  private async profileOverview() {
+    return this.profile.overview(await this.list());
+  }
+
+  private async backfillTokenUsageFromSessions(appIds?: string[]): Promise<boolean> {
+    const ids = appIds ?? (await this.listAppIds());
+    let didRecord = false;
+
+    for (const appId of ids) {
+      const sessionDir = path.join(this.appDir(appId), ".pi", "sessions");
+      let files: string[];
+      try {
+        files = await fs.readdir(sessionDir);
+      } catch (error) {
+        if (isNotFound(error)) continue;
+        throw error;
+      }
+
+      for (const file of files) {
+        if (!file.endsWith(".jsonl")) continue;
+        const events = await readSessionTokenUsageEvents(path.join(sessionDir, file));
+        for (const event of events) {
+          const recorded = await this.profile.recordTokenUsage(
+            appId,
+            event.usageId,
+            event.createdAt,
+            event.usage,
+          );
+          didRecord = didRecord || recorded;
+        }
+      }
+    }
+
+    return didRecord;
+  }
+
+  private async listAppIds(): Promise<string[]> {
+    try {
+      const entries = await fs.readdir(this.paths.apps, { withFileTypes: true });
+      return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+    } catch (error) {
+      if (isNotFound(error)) return [];
+      throw error;
+    }
   }
 }
 
@@ -727,6 +817,35 @@ function safeAttachmentName(name: string): string {
     .slice(0, 160)
     .trim();
   return sanitized.length > 0 ? sanitized : "attachment";
+}
+
+async function readSessionTokenUsageEvents(filePath: string): Promise<AgentTokenUsageEvent[]> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if (isNotFound(error)) return [];
+    throw error;
+  }
+
+  const events: AgentTokenUsageEvent[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    if (line.trim().length === 0) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) continue;
+    const usage = readAgentTokenUsageEvent(parsed as Record<string, unknown>);
+    if (usage) events.push(usage);
+  }
+  return events;
+}
+
+function isNotFound(error: unknown): boolean {
+  return error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT";
 }
 
 function toPosixPath(filePath: string): string {

@@ -15,6 +15,8 @@ export interface FelixPaths {
   readonly apps: string;
   readonly agent: string;
   readonly settingsFile: string;
+  readonly profileFile: string;
+  readonly tokenUsageFile: string;
 }
 
 export function felixPaths(dataDir?: string | null): FelixPaths {
@@ -24,6 +26,8 @@ export function felixPaths(dataDir?: string | null): FelixPaths {
     apps: path.join(root, "apps"),
     agent: path.join(root, "agent"),
     settingsFile: path.join(root, "settings.json"),
+    profileFile: path.join(root, "profile.json"),
+    tokenUsageFile: path.join(root, "token-usage.json"),
   };
 }
 

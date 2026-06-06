@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
 import type { MiniAppSummary } from "@felix/contracts";
 import { useStore } from "../store.tsx";
 import { filesToChatAttachments } from "../lib/message-attachments.ts";
@@ -7,15 +7,17 @@ import { type IconComponent, useIcon } from "../lib/icon-context.tsx";
 import { cn } from "../lib/utils.ts";
 import { Button } from "../components/ui/Button.tsx";
 import { CreatingOverlay } from "../components/CreatingOverlay.tsx";
+import { MiniAppIconView } from "../components/MiniAppIconView.tsx";
 import { InputMessage } from "../components/ui/input-message.tsx";
-import { felix } from "../bridge.ts";
+import { MyFelixPanel } from "./MyFelix.tsx";
 import felixIcon from "../assets/felix-icon.png";
 
-type DashboardTab = "apps" | "build";
+type DashboardTab = "apps" | "build" | "profile";
 
 const DASHBOARD_TABS: Array<{ value: DashboardTab; label: string }> = [
   { value: "apps", label: "My apps" },
   { value: "build", label: "Build with Felix" },
+  { value: "profile", label: "My Felix" },
 ];
 
 export function Dashboard() {
@@ -76,7 +78,7 @@ export function Dashboard() {
             <MotionPanel key="apps" reducedMotion={shouldReduceMotion}>
               <AppsPanel apps={apps} openApp={openApp} onBuild={() => setActiveTab("build")} />
             </MotionPanel>
-          ) : (
+          ) : activeTab === "build" ? (
             <MotionPanel key="build" reducedMotion={shouldReduceMotion}>
               <BuildPanel
                 prompt={prompt}
@@ -88,6 +90,10 @@ export function Dashboard() {
                 onPromptFilesChange={setPromptFiles}
                 onSubmit={submit}
               />
+            </MotionPanel>
+          ) : (
+            <MotionPanel key="profile" reducedMotion={shouldReduceMotion}>
+              <MyFelixPanel />
             </MotionPanel>
           )}
         </AnimatePresence>
@@ -231,40 +237,14 @@ function AppTile({ app, onOpen }: { app: MiniAppSummary; onOpen: () => void }) {
 }
 
 function AppIcon({ app }: { app: MiniAppSummary }) {
-  const [dataUrl, setDataUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!app.icon) {
-      setDataUrl(null);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setDataUrl(null);
-    void felix
-      .invoke("miniApp.icon", { appId: app.id })
-      .then((result) => {
-        if (!cancelled) setDataUrl(result.dataUrl);
-      })
-      .catch(() => {
-        if (!cancelled) setDataUrl(null);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [app.id, app.icon?.generatedAt]);
-
   return (
-    <span className="grid size-24 place-items-center overflow-hidden rounded-2xl bg-surface-2 shadow-surface-3 transition-[transform,background-color] duration-150 group-hover:scale-[1.03] group-hover:bg-hover group-focus-visible:ring-1 group-focus-visible:ring-ring">
-      {dataUrl ? (
-        <img src={dataUrl} alt="" className="size-full object-cover" draggable={false} />
-      ) : (
-        <span className="text-4xl leading-none">{app.emoji}</span>
-      )}
-    </span>
+    <MiniAppIconView
+      appId={app.id}
+      emoji={app.emoji}
+      icon={app.icon}
+      className="size-24 rounded-2xl shadow-surface-3 transition-[transform,background-color] duration-150 group-hover:scale-[1.03] group-hover:bg-hover group-focus-visible:ring-1 group-focus-visible:ring-ring"
+      emojiClassName="text-4xl"
+    />
   );
 }
 
