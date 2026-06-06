@@ -29,6 +29,8 @@ export function Settings() {
   const { goDashboard } = useStore();
   const [settings, setSettings] = useState<FelixSettings | null>(null);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [modelResult, setModelResult] = useState<ProviderModelsResponse | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelRefreshToken, setModelRefreshToken] = useState(0);
@@ -144,6 +146,7 @@ export function Settings() {
     (modelResult?.providerId === settings.activeProvider && modelResult.error)
       ? "text-xs text-destructive"
       : "text-xs text-muted-foreground";
+  const iconGeneration = settings.iconGeneration;
 
   const setKey = (id: ProviderId, apiKey: string) => {
     setSettings(updateProviderApiKey(settings, id, apiKey));
@@ -156,15 +159,28 @@ export function Settings() {
     setSettings({ ...settings, activeProvider: id, activeModel: provider.defaultModel });
   };
 
+  const setIconGeneration = (iconSettings: FelixSettings["iconGeneration"]) => {
+    setSettings({ ...settings, iconGeneration: iconSettings });
+  };
+
   const save = async () => {
-    const next = await felix.invoke("settings.set", settings);
-    setSettings(next);
-    setSaved(true);
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(() => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const next = await felix.invoke("settings.set", settings);
+      setSettings(next);
+      setSaved(true);
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = setTimeout(() => {
+        setSaved(false);
+        saveTimeoutRef.current = null;
+      }, 1500);
+    } catch (error) {
       setSaved(false);
-      saveTimeoutRef.current = null;
-    }, 1500);
+      setSaveError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -257,6 +273,46 @@ export function Settings() {
             </div>
           </Card>
 
+          <Card className="flex flex-col gap-4 p-5">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-sm font-medium">Generated app icons</h2>
+                <p className="text-xs text-muted-foreground">
+                  Adults can enable xAI image generation for mini app dashboard icons.
+                </p>
+              </div>
+              <Switch
+                checked={iconGeneration.enabled}
+                label={iconGeneration.enabled ? "On" : "Off"}
+                onToggle={() =>
+                  setIconGeneration({
+                    ...iconGeneration,
+                    enabled: !iconGeneration.enabled,
+                  })
+                }
+              />
+            </div>
+            <InputGroup className="w-full">
+              <InputField
+                index={0}
+                type="password"
+                label="xAI API Key"
+                value={iconGeneration.xaiApiKey}
+                onChange={(value) =>
+                  setIconGeneration({
+                    ...iconGeneration,
+                    xaiApiKey: value,
+                  })
+                }
+                placeholder="xai-..."
+                disabled={!iconGeneration.enabled}
+              />
+            </InputGroup>
+            <p className="text-xs text-muted-foreground">
+              Felix checks the key when settings are saved and uses Grok Imagine for square icons.
+            </p>
+          </Card>
+
           <Card className="flex items-center justify-between gap-4 p-5">
             <div>
               <h2 className="text-sm font-medium">Allow apps to use the internet</h2>
@@ -273,8 +329,14 @@ export function Settings() {
             />
           </Card>
 
-          <Button className="self-end" onClick={() => void save()}>
-            {saved ? "Saved" : "Save"}
+          {saveError && (
+            <p className="self-end text-right text-xs text-destructive" role="alert">
+              {saveError}
+            </p>
+          )}
+
+          <Button className="self-end" onClick={() => void save()} loading={saving}>
+            {saved ? "Saved" : saving ? "Saving" : "Save"}
           </Button>
         </div>
       </div>

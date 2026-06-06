@@ -135,7 +135,7 @@ export function felixData() {
     },
     {
       path: ".felix/about.json",
-      content: `${JSON.stringify({ name: ctx.name, emoji: "🚀" }, null, 2)}\n`,
+      content: `${JSON.stringify({ name: ctx.name, emoji: "🚀", app_description: "" }, null, 2)}\n`,
     },
     {
       path: "felix/data.js",

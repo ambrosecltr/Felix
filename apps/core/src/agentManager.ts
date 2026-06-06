@@ -24,6 +24,7 @@ interface PendingToolDetail {
 /** Maps raw PI tool names to friendly labels kids can understand. */
 function kidToolLabel(toolName: string): string {
   const name = toolName.toLowerCase();
+  if (name.includes("set_app_metadata")) return "Naming your app";
   if (name.includes("read") || name === "cat") return "Reading your code";
   if (name.includes("write") || name.includes("edit") || name.includes("patch")) {
     return "Writing your code";
@@ -150,16 +151,19 @@ export class AgentManager {
       ({ command, args } = wrapWithSandbox(sandboxProfilePath, command, args));
     }
 
+    const agentEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      ...providerEnv(settings),
+      PI_AGENT_DIR: agentDir,
+      IMPECCABLE_NO_UPDATE_CHECK: "1",
+      FELIX_SYSTEM_PROMPT,
+    };
+    delete agentEnv.XAI_API_KEY;
+
     const child = spawn(command, args, {
       cwd: appDir,
       stdio: ["pipe", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        ...providerEnv(settings),
-        PI_AGENT_DIR: agentDir,
-        IMPECCABLE_NO_UPDATE_CHECK: "1",
-        FELIX_SYSTEM_PROMPT,
-      },
+      env: agentEnv,
     });
 
     const send = (cmd: object) => {
@@ -360,10 +364,14 @@ function piThinkingLevelFor(settings: FelixSettings): PiThinkingLevel | null {
 function toolCallDetail(toolName: string, args: unknown): string | undefined {
   const normalizedName = toolName.toLowerCase();
   const record = isRecord(args) ? args : {};
+  const appName = readString(record.name);
   const targetPath = readString(record.path) ?? readString(record.filePath) ?? readString(record.file);
   const command = readString(record.command) ?? readString(record.cmd);
   const query = readString(record.query) ?? readString(record.pattern);
 
+  if (normalizedName.includes("set_app_metadata")) {
+    return appName ? `Saved ${shortenToolText(appName)}` : "Saved app details";
+  }
   if (normalizedName.includes("read") || normalizedName === "cat") {
     return targetPath ? `Read ${shortenToolText(targetPath)}` : "Read a file";
   }

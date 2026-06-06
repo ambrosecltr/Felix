@@ -25,16 +25,22 @@ web app called "${appName}". They are learning to code and may not know technica
 - Never scare the kid. If something breaks, stay calm and say you'll fix it.
 - Never ask the kid to run commands or edit files themselves. You do all the work.
 
-## Naming the app
-- The app has a name and a single emoji icon, stored in .felix/about.json
-  (a small JSON file like {"name": "Star Catcher", "emoji": "⭐"}).
+## Naming and describing the app
+- The app has a name, a single emoji fallback icon, and an app description stored in
+  .felix/about.json (a small JSON file like
+  {"name": "Star Catcher", "emoji": "⭐", "app_description": "A game where you catch falling stars"}).
 - The FIRST time you help with a brand-new app (the name still looks like the
   kid's raw first message, or the emoji is still the default 🚀): pick a short,
-  fun, kid-friendly name (1-3 words) and ONE emoji that fits the idea, then
-  edit .felix/about.json to save them. Do this early, before other changes.
+  fun, kid-friendly name (1-3 words), ONE emoji that fits the idea, and a short
+  plain description of the app, then call set_app_metadata to save them. Do this
+  early, before other changes.
 - Whenever the kid asks to rename the app or change its icon/emoji, update
   .felix/about.json to match.
-- .felix/about.json is the hidden metadata file you may edit.
+- Whenever the app's core idea changes, update app_description too. Felix may use
+  that description to generate the dashboard icon. If generated icons are not
+  enabled, the dashboard falls back to the emoji.
+- Prefer the set_app_metadata tool for these changes. .felix/about.json is the
+  hidden metadata file you may edit if the tool is unavailable.
 
 ## The workspace (this never changes)
 - This is a small web app built with Vite. Plain JavaScript, HTML, and CSS.
@@ -42,7 +48,7 @@ web app called "${appName}". They are learning to code and may not know technica
   - index.html - the page structure
   - main.js - the app's behavior
   - style.css - how it looks
-  - .felix/about.json - the app's name and emoji (see "Naming the app")
+  - .felix/about.json - the app's name, emoji, and app_description (see "Naming and describing the app")
 - Saving data: use the helper in felix/data.js. Import it and use:
   - felixData.set(key, value) / felixData.get(key)
   - felixData.add(collection, item) / felixData.all(collection)
@@ -110,7 +116,7 @@ Main editable files:
 - \`index.html\` for the page structure.
 - \`main.js\` for behavior.
 - \`style.css\` for visual design.
-- \`.felix/about.json\` for the app name and emoji.
+- \`.felix/about.json\` for the app name, emoji, and app_description.
 
 Do not edit \`vite.config.js\`, \`felix/data-plugin.js\`, \`felix/data.js\`, \`package.json\`, \`node_modules\`, or generated build files unless the user explicitly asks for platform work.
 
@@ -203,6 +209,11 @@ Say what changed in one short, cheerful sentence. Do not list technical internal
       path: ".pi/extensions/felix-ask-user-question/index.ts",
       overwrite: true,
       content: felixAskUserQuestionExtension(),
+    },
+    {
+      path: ".pi/extensions/felix-set-app-metadata/index.ts",
+      overwrite: true,
+      content: felixSetAppMetadataExtension(),
     },
   ];
 }
@@ -387,6 +398,125 @@ Before you answer the kid, check:
 - Did you avoid making the app childish unless the idea asked for that?
 
 Tell the kid the visible result in one short sentence. Avoid design-theory explanations unless asked.
+`;
+}
+
+function felixSetAppMetadataExtension(): string {
+  return `import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+type MetadataParams = {
+  name?: string;
+  emoji?: string;
+  app_description?: string;
+};
+
+const parameters = {
+  type: "object",
+  properties: {
+    name: {
+      type: "string",
+      description: "Short kid-friendly app name, usually 1-3 words.",
+      maxLength: 40,
+    },
+    emoji: {
+      type: "string",
+      description: "One emoji that works as the fallback dashboard icon.",
+      maxLength: 16,
+    },
+    app_description: {
+      type: "string",
+      description:
+        "Plain description of the app's concept for Felix dashboard icon generation. Update this when the app's core idea changes.",
+      maxLength: 600,
+    },
+  },
+} as any;
+
+export default function (pi: ExtensionAPI) {
+  pi.registerTool({
+    name: "set_app_metadata",
+    label: "Name App",
+    description:
+      "Set the Felix mini app name, fallback emoji, and app_description metadata. app_description is used by Felix to generate a dashboard app icon when adults have enabled icon generation.",
+    promptSnippet:
+      "Use set_app_metadata early for every new app, and update app_description whenever the app's core idea changes.",
+    promptGuidelines: [
+      "Use this instead of manually editing .felix/about.json when you are choosing or changing the app name, fallback emoji, or description.",
+      "Keep name short and kid-friendly.",
+      "Use exactly one emoji for emoji.",
+      "Write app_description as a compact plain-English description of what the app does, not a visual style prompt.",
+    ],
+    parameters,
+    async execute(_toolCallId, params) {
+      const typed = params as MetadataParams;
+      const patch = normalizePatch(typed);
+      if (Object.keys(patch).length === 0) {
+        return result("Error: Provide at least one of name, emoji, or app_description.", true);
+      }
+
+      const filePath = path.join(process.cwd(), ".felix", "about.json");
+      const current = await readCurrentMetadata(filePath);
+      const next = { ...current, ...patch };
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.writeFile(filePath, JSON.stringify(next, null, 2) + "\\n", "utf8");
+
+      const saved = [
+        typeof next.name === "string" ? \`name "\${next.name}"\` : null,
+        typeof next.emoji === "string" ? \`emoji \${next.emoji}\` : null,
+        typeof next.app_description === "string" ? "app_description" : null,
+      ].filter(Boolean);
+      return result(\`Saved app metadata: \${saved.join(", ")}.\`, false);
+    },
+  });
+}
+
+async function readCurrentMetadata(filePath: string): Promise<Record<string, unknown>> {
+  try {
+    const parsed: unknown = JSON.parse(await fs.readFile(filePath, "utf8"));
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function normalizePatch(params: MetadataParams): Record<string, string> {
+  const patch: Record<string, string> = {};
+  if (typeof params.name === "string") {
+    const name = params.name.trim().slice(0, 40);
+    if (name.length > 0) patch.name = name;
+  }
+  if (typeof params.emoji === "string") {
+    const emoji = firstGrapheme(params.emoji.trim());
+    if (emoji.length > 0) patch.emoji = emoji;
+  }
+  if (typeof params.app_description === "string") {
+    const appDescription = params.app_description.trim().replace(/\\s+/g, " ").slice(0, 600);
+    if (appDescription.length > 0) patch.app_description = appDescription;
+  }
+  return patch;
+}
+
+function firstGrapheme(input: string): string {
+  const Segmenter = (Intl as unknown as { Segmenter?: typeof Intl.Segmenter }).Segmenter;
+  if (Segmenter) {
+    const segmenter = new Segmenter();
+    for (const { segment } of segmenter.segment(input)) return segment;
+  }
+  return [...input][0] ?? "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function result(text: string, isError: boolean) {
+  return {
+    content: [{ type: "text", text }],
+    isError,
+  };
+}
 `;
 }
 

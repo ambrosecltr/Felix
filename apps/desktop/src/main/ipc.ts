@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import type { MiniAppManager } from "@felix/core";
-import { SendChatRequest } from "@felix/contracts";
+import { MiniAppIconRequest, SendChatRequest } from "@felix/contracts";
 import type { ExtensionUiResponse, FelixApiChannel } from "@felix/contracts";
 import type { MiniAppView, ViewBounds } from "./miniAppView.ts";
 
@@ -17,6 +17,7 @@ export function registerIpc(manager: MiniAppManager, getView: () => MiniAppView 
   handle("miniApp.list", () => manager.list());
   handle("miniApp.create", (arg) => manager.create((arg as { prompt: string }).prompt));
   handle("miniApp.open", (arg) => manager.open((arg as { appId: string }).appId));
+  handle("miniApp.icon", (arg) => manager.iconData(MiniAppIconRequest.parse(arg).appId));
   handle("miniApp.stop", (arg) => manager.stop((arg as { appId: string }).appId));
   handle("miniApp.delete", (arg) => manager.delete((arg as { appId: string }).appId));
 

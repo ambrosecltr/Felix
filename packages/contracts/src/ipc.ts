@@ -7,7 +7,12 @@ import {
   MAX_CHAT_ATTACHMENTS,
 } from "./agent.ts";
 // ChatMessage retained in agent.ts for compatibility; turns are the new unit.
-import { Checkpoint, MiniAppStatus, MiniAppSummary } from "./miniApp.ts";
+import {
+  Checkpoint,
+  MiniAppIconDataResponse,
+  MiniAppStatus,
+  MiniAppSummary,
+} from "./miniApp.ts";
 import { ProviderModelsRequest, ProviderModelsResponse } from "./providers.ts";
 import { FelixSettings } from "./settings.ts";
 
@@ -29,6 +34,11 @@ export const RestoreCheckpointRequest = z.object({
 });
 export type RestoreCheckpointRequest = z.infer<typeof RestoreCheckpointRequest>;
 
+export const MiniAppIconRequest = z.object({
+  appId: z.string(),
+});
+export type MiniAppIconRequest = z.infer<typeof MiniAppIconRequest>;
+
 /**
  * Request/response IPC methods (renderer -> main, awaitable).
  * Keys are channel names; tuple is [request, response].
@@ -37,6 +47,7 @@ export interface FelixApi {
   "miniApp.list": [void, MiniAppSummary[]];
   "miniApp.create": [CreateMiniAppRequest, MiniAppSummary];
   "miniApp.open": [{ appId: string }, MiniAppSummary];
+  "miniApp.icon": [MiniAppIconRequest, MiniAppIconDataResponse];
   "miniApp.stop": [{ appId: string }, void];
   "miniApp.delete": [{ appId: string }, void];
   "chat.history": [{ appId: string }, ChatTurn[]];

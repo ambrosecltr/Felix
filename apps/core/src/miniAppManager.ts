@@ -8,10 +8,12 @@ import {
   type ChatAttachmentInput,
   type ChatTurn,
   type Checkpoint,
+  FelixSettings,
   MAX_CHAT_ATTACHMENT_BYTES,
-  type MiniAppManifest,
+  MiniAppManifest,
   type MiniAppStatus,
   type MiniAppSummary,
+  type MiniAppIconDataResponse,
   type ProviderModelsRequest,
   type PushEvent,
 } from "@felix/contracts";
@@ -22,6 +24,11 @@ import { templateFiles } from "@felix/mini-app-template/files";
 import { AgentManager } from "./agentManager.ts";
 import { bundledBunPath, resolveBun } from "./bunRuntime.ts";
 import { ChatStore } from "./chatStore.ts";
+import {
+  checkIconGenerationSetup,
+  generateMiniAppIcon,
+  iconGenerationApiKey,
+} from "./iconGeneration.ts";
 import { bundledNodePath, resolveMiniAppNode } from "./nodeRuntime.ts";
 import { listProviderModels } from "./providerModels.ts";
 import { resolvePiPackageDir } from "./resolvePi.ts";
@@ -37,6 +44,12 @@ type Emit = (event: PushEvent) => void;
 const INSTALL_TIMEOUT_MS = 5 * 60_000;
 const DELETE_MAX_RETRIES = 10;
 const DELETE_RETRY_DELAY_MS = 100;
+const ICON_FILE_BASE_NAME = "icon";
+const ICON_MIME_EXTENSIONS: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
 
 export class MiniAppManager {
   private readonly paths = felixPaths();
@@ -48,6 +61,8 @@ export class MiniAppManager {
   private persistQueues = new Map<string, Promise<void>>();
   private aboutWatchers = new Map<string, FSWatcher>();
   private aboutDebounce = new Map<string, ReturnType<typeof setTimeout>>();
+  private iconGenerationRequests = new Map<string, string>();
+  private iconGenerationRunning = new Set<string>();
   private readonly bunBin: string;
 
   constructor(
@@ -99,7 +114,7 @@ export class MiniAppManager {
   private async readManifest(appId: string): Promise<MiniAppManifest | null> {
     try {
       const raw = await fs.readFile(miniAppPaths(this.paths.apps, appId).manifestFile, "utf8");
-      return JSON.parse(raw) as MiniAppManifest;
+      return MiniAppManifest.parse(JSON.parse(raw));
     } catch {
       return null;
     }
@@ -147,6 +162,9 @@ export class MiniAppManager {
       id,
       name,
       emoji: "🚀",
+      appDescription: "",
+      icon: null,
+      iconError: null,
       createdAt: now,
       updatedAt: now,
       devPort: null,
@@ -190,6 +208,22 @@ export class MiniAppManager {
     return this.toSummary(manifest);
   }
 
+  async iconData(appId: string): Promise<MiniAppIconDataResponse> {
+    const manifest = await this.readManifest(appId);
+    if (!manifest?.icon) return { dataUrl: null, generatedAt: null };
+
+    const iconPath = safeAppRelativePath(this.appDir(appId), manifest.icon.relativePath);
+    try {
+      const bytes = await fs.readFile(iconPath);
+      return {
+        dataUrl: `data:${manifest.icon.mimeType};base64,${bytes.toString("base64")}`,
+        generatedAt: manifest.icon.generatedAt,
+      };
+    } catch {
+      return { dataUrl: null, generatedAt: null };
+    }
+  }
+
   async stop(appId: string): Promise<void> {
     await Promise.all([this.agent.stop(appId), this.vite.stop(appId)]);
     this.unwatchAbout(appId);
@@ -202,6 +236,8 @@ export class MiniAppManager {
     await this.persistQueues.get(appId)?.catch(() => {});
     this.chatStores.delete(appId);
     this.persistQueues.delete(appId);
+    this.iconGenerationRequests.delete(appId);
+    this.iconGenerationRunning.delete(appId);
     await fs.rm(dir, {
       recursive: true,
       force: true,
@@ -211,7 +247,7 @@ export class MiniAppManager {
     this.statuses.delete(appId);
   }
 
-  // --- name & emoji (agent-controlled via .felix/about.json) ---
+  // --- app metadata (agent-controlled via .felix/about.json) ---
 
   private watchAbout(appId: string): void {
     if (this.aboutWatchers.has(appId)) return;
@@ -242,7 +278,7 @@ export class MiniAppManager {
 
   private async syncAboutFile(appId: string): Promise<void> {
     const file = miniAppPaths(this.paths.apps, appId).aboutFile;
-    let about: { name?: unknown; emoji?: unknown };
+    let about: { name?: unknown; emoji?: unknown; app_description?: unknown; appDescription?: unknown };
     try {
       about = JSON.parse(await fs.readFile(file, "utf8"));
     } catch {
@@ -252,6 +288,7 @@ export class MiniAppManager {
     if (!manifest) return;
 
     let changed = false;
+    let descriptionChanged = false;
     if (typeof about.name === "string") {
       const name = about.name.trim().slice(0, 40);
       if (name.length > 0 && name !== manifest.name) {
@@ -266,9 +303,85 @@ export class MiniAppManager {
         changed = true;
       }
     }
+    const rawDescription =
+      typeof about.app_description === "string"
+        ? about.app_description
+        : typeof about.appDescription === "string"
+          ? about.appDescription
+          : null;
+    if (rawDescription !== null) {
+      const appDescription = rawDescription.trim().slice(0, 600);
+      if (appDescription !== manifest.appDescription) {
+        manifest.appDescription = appDescription;
+        manifest.iconError = null;
+        descriptionChanged = true;
+        changed = true;
+      }
+    }
     if (!changed) return;
 
     manifest.updatedAt = new Date().toISOString();
+    await this.writeManifest(manifest);
+    this.emit({ kind: "miniAppUpdated", appId, summary: this.toSummary(manifest) });
+    if (descriptionChanged) this.requestIconGeneration(appId, manifest.appDescription);
+  }
+
+  private requestIconGeneration(appId: string, description: string): void {
+    const trimmedDescription = description.trim();
+    if (trimmedDescription.length === 0) return;
+    this.iconGenerationRequests.set(appId, trimmedDescription);
+    if (!this.iconGenerationRunning.has(appId)) {
+      void this.runIconGenerationQueue(appId);
+    }
+  }
+
+  private async runIconGenerationQueue(appId: string): Promise<void> {
+    this.iconGenerationRunning.add(appId);
+    try {
+      for (;;) {
+        const description = this.iconGenerationRequests.get(appId);
+        if (!description) return;
+        this.iconGenerationRequests.delete(appId);
+        await this.generateIconForDescription(appId, description).catch((error: unknown) =>
+          this.persistIconError(appId, description, error),
+        );
+      }
+    } finally {
+      this.iconGenerationRunning.delete(appId);
+      if (this.iconGenerationRequests.has(appId)) void this.runIconGenerationQueue(appId);
+    }
+  }
+
+  private async generateIconForDescription(appId: string, description: string): Promise<void> {
+    const settings = await this.settings.get();
+    const apiKey = iconGenerationApiKey(settings);
+    if (!apiKey) return;
+
+    const generated = await generateMiniAppIcon(apiKey, description);
+    const manifest = await this.readManifest(appId);
+    if (!manifest || manifest.appDescription !== description) return;
+
+    const extension = ICON_MIME_EXTENSIONS[generated.mimeType] ?? "jpg";
+    const relativePath = `.felix/${ICON_FILE_BASE_NAME}.${extension}`;
+    const iconPath = path.join(this.appDir(appId), relativePath);
+    await fs.mkdir(path.dirname(iconPath), { recursive: true });
+    await fs.writeFile(iconPath, generated.bytes);
+
+    manifest.icon = {
+      relativePath: toPosixPath(relativePath),
+      mimeType: generated.mimeType,
+      generatedAt: new Date().toISOString(),
+      description,
+    };
+    manifest.iconError = null;
+    await this.writeManifest(manifest);
+    this.emit({ kind: "miniAppUpdated", appId, summary: this.toSummary(manifest) });
+  }
+
+  private async persistIconError(appId: string, description: string, error: unknown): Promise<void> {
+    const manifest = await this.readManifest(appId);
+    if (!manifest || manifest.appDescription !== description) return;
+    manifest.iconError = error instanceof Error ? error.message : String(error);
     await this.writeManifest(manifest);
     this.emit({ kind: "miniAppUpdated", appId, summary: this.toSummary(manifest) });
   }
@@ -373,8 +486,17 @@ export class MiniAppManager {
     return this.settings.get();
   }
 
-  setSettings(next: Parameters<SettingsStore["set"]>[0]) {
-    return this.settings.set(next);
+  async setSettings(next: Parameters<SettingsStore["set"]>[0]) {
+    const parsed = FelixSettings.parse(next);
+    const normalized = {
+      ...parsed,
+      iconGeneration: {
+        ...parsed.iconGeneration,
+        xaiApiKey: parsed.iconGeneration.xaiApiKey.trim(),
+      },
+    };
+    await checkIconGenerationSetup(normalized);
+    return this.settings.set(normalized);
   }
 
   listProviderModels(request: ProviderModelsRequest) {
@@ -516,6 +638,16 @@ function safeAttachmentName(name: string): string {
 
 function toPosixPath(filePath: string): string {
   return filePath.split(path.sep).join("/");
+}
+
+function safeAppRelativePath(appDir: string, relativePath: string): string {
+  if (path.isAbsolute(relativePath)) throw new Error("Mini app icon path must be relative");
+  const root = path.resolve(appDir);
+  const resolved = path.resolve(root, relativePath);
+  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+    throw new Error("Mini app icon path is outside the app directory");
+  }
+  return resolved;
 }
 
 function promptWithAttachments(text: string, attachments: ChatAttachment[]): string {
