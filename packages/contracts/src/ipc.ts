@@ -51,6 +51,7 @@ export interface FelixApi {
   "miniApp.stop": [{ appId: string }, void];
   "miniApp.delete": [{ appId: string }, void];
   "chat.history": [{ appId: string }, ChatTurn[]];
+  "chat.clear": [{ appId: string }, void];
   "chat.send": [SendChatRequest, void];
   "chat.abort": [{ appId: string }, void];
   "agent.ui.respond": [{ appId: string; response: ExtensionUiResponse }, void];

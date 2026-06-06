@@ -20,6 +20,10 @@ export class ChatStore {
     return structuredClone(this.turns);
   }
 
+  async clear(): Promise<void> {
+    await this.writeAll([]);
+  }
+
   private async readTurns(): Promise<ChatTurn[]> {
     try {
       const raw = await fs.readFile(this.chatFile, "utf8");

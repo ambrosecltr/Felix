@@ -22,6 +22,7 @@ export function registerIpc(manager: MiniAppManager, getView: () => MiniAppView 
   handle("miniApp.delete", (arg) => manager.delete((arg as { appId: string }).appId));
 
   handle("chat.history", (arg) => manager.chatHistory((arg as { appId: string }).appId));
+  handle("chat.clear", (arg) => manager.clearChat((arg as { appId: string }).appId));
   handle("chat.send", (arg) => {
     const { appId, text, attachments } = SendChatRequest.parse(arg);
     return manager.sendChat(appId, text, attachments);

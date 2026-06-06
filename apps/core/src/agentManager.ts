@@ -130,7 +130,7 @@ export class AgentManager {
       // app restarts (created on first use). Without this PI starts fresh and
       // the model loses all prior context even though we show the kid's chat.
       "--session-id",
-      `felix-${appId}`,
+      sessionIdFor(appId),
     ];
     const thinkingLevel = piThinkingLevelFor(settings);
     if (thinkingLevel) {
@@ -336,6 +336,26 @@ export class AgentManager {
     this.agents.get(appId)?.send({ type: "abort" });
   }
 
+  async clearSession(appId: string, appDir: string): Promise<void> {
+    await this.stop(appId);
+
+    const sessionsDir = path.join(appDir, ".pi", "sessions");
+    let entries: string[];
+    try {
+      entries = await fs.readdir(sessionsDir);
+    } catch (err) {
+      if (isNotFound(err)) return;
+      throw err;
+    }
+
+    const sessionId = sessionIdFor(appId);
+    await Promise.all(
+      entries
+        .filter((entry) => isSessionEntry(entry, sessionId))
+        .map((entry) => fs.rm(path.join(sessionsDir, entry), { recursive: true, force: true })),
+    );
+  }
+
   respondToExtensionUi(appId: string, response: ExtensionUiResponse): void {
     this.agents.get(appId)?.send({ type: "extension_ui_response", ...response });
   }
@@ -354,6 +374,24 @@ export class AgentManager {
   stopAll(): void {
     for (const id of [...this.agents.keys()]) void this.stop(id);
   }
+}
+
+function sessionIdFor(appId: string): string {
+  return `felix-${appId}`;
+}
+
+function isSessionEntry(entry: string, sessionId: string): boolean {
+  return (
+    entry === sessionId ||
+    entry.startsWith(`${sessionId}.`) ||
+    entry.endsWith(`_${sessionId}`) ||
+    entry.endsWith(`_${sessionId}.json`) ||
+    entry.endsWith(`_${sessionId}.jsonl`)
+  );
+}
+
+function isNotFound(err: unknown): boolean {
+  return err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT";
 }
 
 function piThinkingLevelFor(settings: FelixSettings): PiThinkingLevel | null {

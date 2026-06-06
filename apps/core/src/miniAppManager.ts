@@ -400,6 +400,18 @@ export class MiniAppManager {
     return this.chatStore(appId).list();
   }
 
+  async clearChat(appId: string): Promise<void> {
+    const dir = this.appDir(appId);
+    const manifest = await this.readManifest(appId);
+    if (!manifest) throw new Error(`Mini app not found: ${appId}`);
+
+    await this.agent.clearSession(appId, dir);
+    await this.persistQueues.get(appId)?.catch(() => {});
+    this.persistQueues.delete(appId);
+    await this.chatStore(appId).clear();
+    await fs.rm(path.join(dir, ".felix", "attachments"), { recursive: true, force: true });
+  }
+
   async sendChat(
     appId: string,
     text: string,

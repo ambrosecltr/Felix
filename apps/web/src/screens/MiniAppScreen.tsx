@@ -33,8 +33,9 @@ export function MiniAppScreen({ appId }: { appId: string }) {
   const ReloadIcon = useIcon("rotate-ccw");
   const CheckpointsIcon = useIcon("clock");
   const TrashIcon = useIcon("trash");
+  const miniAppViewUrl = isRunning && !showDeleteConfirm ? devUrl : null;
 
-  useMiniAppView(placeholderRef, isRunning ? devUrl : null);
+  useMiniAppView(placeholderRef, miniAppViewUrl);
 
   const confirmDelete = async () => {
     setIsDeleting(true);

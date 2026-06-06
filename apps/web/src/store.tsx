@@ -34,6 +34,7 @@ interface StoreValue {
   openApp: (appId: string) => Promise<void>;
   createApp: (prompt: string, attachments?: ChatAttachmentInput[]) => Promise<void>;
   deleteApp: (appId: string) => Promise<void>;
+  clearChat: (appId: string) => Promise<void>;
   sendChat: (appId: string, text: string, attachments?: ChatAttachmentInput[]) => Promise<void>;
   abortChat: (appId: string) => Promise<void>;
   respondToUiRequest: (appId: string, response: ExtensionUiResponse) => Promise<void>;
@@ -281,6 +282,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const clearChat = useCallback(async (appId: string) => {
+    await felix.invoke("chat.clear", { appId });
+    setChats((prev) => ({ ...prev, [appId]: [] }));
+    setFelixThinking((prev) => ({ ...prev, [appId]: false }));
+    setUiRequests((prev) => {
+      const next = { ...prev };
+      delete next[appId];
+      return next;
+    });
+  }, []);
+
   const abortChat = useCallback(async (appId: string) => {
     await felix.invoke("chat.abort", { appId });
   }, []);
@@ -319,6 +331,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       openApp,
       createApp,
       deleteApp,
+      clearChat,
       sendChat,
       abortChat,
       respondToUiRequest,
@@ -333,6 +346,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       openApp,
       createApp,
       deleteApp,
+      clearChat,
       sendChat,
       abortChat,
       respondToUiRequest,

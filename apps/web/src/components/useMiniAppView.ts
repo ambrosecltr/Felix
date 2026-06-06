@@ -3,8 +3,8 @@ import { felix } from "../bridge.ts";
 
 /**
  * Keeps the native WebContentsView aligned with the placeholder element and
- * pointed at the running dev server. Hides it on unmount so it doesn't cover
- * the dashboard / settings.
+ * pointed at the running dev server. Passing a null URL hides it so renderer
+ * overlays can sit above the mini app without fighting native view layering.
  */
 export function useMiniAppView(
   placeholderRef: RefObject<HTMLElement>,

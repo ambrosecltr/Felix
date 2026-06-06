@@ -17,15 +17,25 @@ import {
 } from "./ui/thinking-steps.tsx";
 
 export function BuildChat({ appId }: { appId: string }) {
-  const { chats, felixThinking, uiRequests, sendChat, abortChat, respondToUiRequest } = useStore();
+  const {
+    chats,
+    felixThinking,
+    uiRequests,
+    clearChat,
+    sendChat,
+    abortChat,
+    respondToUiRequest,
+  } = useStore();
   const [text, setText] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isClearing, setIsClearing] = useState(false);
   const turns = chats[appId] ?? [];
   const thinking = felixThinking[appId] ?? false;
   const activeRequest = uiRequests[appId]?.[0];
   const scrollRef = useRef<HTMLDivElement>(null);
   const PaperclipIcon = useIcon("paperclip");
+  const TrashIcon = useIcon("trash");
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -46,21 +56,52 @@ export function BuildChat({ appId }: { appId: string }) {
     }
   };
 
+  const clearCurrentChat = async () => {
+    setIsClearing(true);
+    setError(null);
+    try {
+      await clearChat(appId);
+      setText("");
+      setFiles([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't clear this chat.");
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
   return (
     <div className="flex h-full flex-col bg-background">
-      <div className="flex h-10 items-center border-b border-border px-4 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Build with Felix
+      <div className="flex h-10 items-center justify-between gap-2 border-b border-border px-4">
+        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Build with Felix
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          leadingIcon={TrashIcon}
+          loading={isClearing}
+          disabled={turns.length === 0 && !thinking && !activeRequest}
+          onClick={() => void clearCurrentChat()}
+        >
+          Clear chat
+        </Button>
       </div>
 
       <div ref={scrollRef} className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
-        {turns.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            Tell Felix what to change and watch your app update.
-          </p>
+        {turns.length === 0 ? (
+          <div className="flex min-h-full items-center justify-center text-center">
+            <div className="max-w-[240px]">
+              <p className="text-sm font-medium text-foreground">Start a fresh chat</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                Tell Felix what to change and watch your app update.
+              </p>
+            </div>
+          </div>
+        ) : (
+          turns.map((turn) => <TurnView key={turn.id} turn={turn} />)
         )}
-        {turns.map((turn) => (
-          <TurnView key={turn.id} turn={turn} />
-        ))}
       </div>
 
       <div className="border-t border-border p-3">
