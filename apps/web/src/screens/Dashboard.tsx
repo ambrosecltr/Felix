@@ -1,23 +1,31 @@
 import { useState } from "react";
 import { useStore } from "../store.tsx";
+import { filesToChatAttachments } from "../lib/message-attachments.ts";
+import { useIcon } from "../lib/icon-context.tsx";
 import { Button } from "../components/ui/Button.tsx";
 import { CreatingOverlay } from "../components/CreatingOverlay.tsx";
+import { InputMessage } from "../components/ui/input-message.tsx";
 import felixIcon from "../assets/felix-icon.png";
 
 export function Dashboard() {
   const { apps, createApp, openApp, goSettings } = useStore();
   const [prompt, setPrompt] = useState("");
+  const [promptFiles, setPromptFiles] = useState<File[]>([]);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const PaperclipIcon = useIcon("paperclip");
+  const SettingsIcon = useIcon("settings");
 
-  const submit = async () => {
-    const text = prompt.trim();
+  const submit = async (value: string, files: File[]) => {
+    const text = value.trim();
     if (text.length === 0 || creating) return;
     setCreating(true);
     setError(null);
     try {
-      await createApp(text);
+      const attachments = await filesToChatAttachments(files);
+      await createApp(text, attachments);
       setPrompt("");
+      setPromptFiles([]);
     } catch (err) {
       setError(
         err instanceof Error
@@ -33,7 +41,7 @@ export function Dashboard() {
     <div className="flex h-full flex-col">
       <header className="drag-region flex h-12 items-center justify-between border-b border-border pl-20 pr-3">
         <span className="text-sm font-semibold tracking-tight">Felix</span>
-        <Button variant="ghost" size="sm" onClick={goSettings}>
+        <Button variant="ghost" size="sm" leadingIcon={SettingsIcon} onClick={goSettings}>
           Settings
         </Button>
       </header>
@@ -58,24 +66,33 @@ export function Dashboard() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-border bg-card shadow-sm focus-within:ring-2 focus-within:ring-ring/40">
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit();
-                }}
-                placeholder="A game where I catch falling stars…"
-                rows={3}
-                className="w-full resize-none bg-transparent px-4 pt-3.5 text-[15px] leading-relaxed outline-none placeholder:text-muted-foreground"
-              />
-              <div className="flex items-center justify-between px-3 pb-3">
-                <span className="text-xs text-muted-foreground">⌘↵ to build</span>
-                <Button onClick={() => void submit()} disabled={prompt.trim().length === 0}>
-                  Build it
+            <InputMessage
+              value={prompt}
+              onValueChange={setPrompt}
+              onSend={(value, files) => void submit(value, files)}
+              placeholder="A game where I catch falling stars..."
+              minRows={3}
+              maxRows={8}
+              sendLabel="Build"
+              disabled={creating}
+              files={promptFiles}
+              onFilesChange={setPromptFiles}
+              maxFiles={4}
+              allowFileOnly={false}
+              leftSlot={({ openFilePicker }) => (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Attach files"
+                  title="Attach files"
+                  disabled={creating}
+                  onClick={() => openFilePicker()}
+                >
+                  <PaperclipIcon />
                 </Button>
-              </div>
-            </div>
+              )}
+            />
 
             {error && (
               <p className="text-center text-sm text-destructive" role="alert">
@@ -96,7 +113,7 @@ export function Dashboard() {
                     key={app.id}
                     type="button"
                     onClick={() => void openApp(app.id)}
-                    className="group flex flex-col gap-3 rounded-xl border border-border bg-card p-4 text-left shadow-sm transition-colors hover:bg-accent"
+                    className="group flex flex-col gap-3 rounded-3xl bg-surface-2 p-4 text-left shadow-surface-2 transition-colors hover:bg-hover"
                   >
                     <span className="text-3xl">{app.emoji}</span>
                     <span className="truncate text-sm font-medium">{app.name}</span>

@@ -1,5 +1,6 @@
 import { ipcMain } from "electron";
 import type { MiniAppManager } from "@felix/core";
+import { SendChatRequest } from "@felix/contracts";
 import type { ExtensionUiResponse, FelixApiChannel } from "@felix/contracts";
 import type { MiniAppView, ViewBounds } from "./miniAppView.ts";
 
@@ -21,8 +22,8 @@ export function registerIpc(manager: MiniAppManager, getView: () => MiniAppView 
 
   handle("chat.history", (arg) => manager.chatHistory((arg as { appId: string }).appId));
   handle("chat.send", (arg) => {
-    const { appId, text } = arg as { appId: string; text: string };
-    return manager.sendChat(appId, text);
+    const { appId, text, attachments } = SendChatRequest.parse(arg);
+    return manager.sendChat(appId, text, attachments);
   });
   handle("chat.abort", (arg) => manager.abortChat((arg as { appId: string }).appId));
   handle("agent.ui.respond", (arg) => {
@@ -38,6 +39,7 @@ export function registerIpc(manager: MiniAppManager, getView: () => MiniAppView 
 
   handle("settings.get", () => manager.getSettings());
   handle("settings.set", (arg) => manager.setSettings(arg as never));
+  handle("provider.models", (arg) => manager.listProviderModels(arg as never));
 
   // Mini app view control (not part of the typed FelixApi - main-only).
   ipcMain.handle("miniAppView.show", (_e, arg: { url: string; bounds: ViewBounds }) => {

@@ -1,7 +1,14 @@
 import { z } from "zod";
-import { AgentEvent, ChatTurn, ExtensionUiResponse } from "./agent.ts";
+import {
+  AgentEvent,
+  ChatAttachmentInput,
+  ChatTurn,
+  ExtensionUiResponse,
+  MAX_CHAT_ATTACHMENTS,
+} from "./agent.ts";
 // ChatMessage retained in agent.ts for compatibility; turns are the new unit.
 import { Checkpoint, MiniAppStatus, MiniAppSummary } from "./miniApp.ts";
+import { ProviderModelsRequest, ProviderModelsResponse } from "./providers.ts";
 import { FelixSettings } from "./settings.ts";
 
 export const CreateMiniAppRequest = z.object({
@@ -12,6 +19,7 @@ export type CreateMiniAppRequest = z.infer<typeof CreateMiniAppRequest>;
 export const SendChatRequest = z.object({
   appId: z.string(),
   text: z.string(),
+  attachments: ChatAttachmentInput.array().max(MAX_CHAT_ATTACHMENTS).default([]),
 });
 export type SendChatRequest = z.infer<typeof SendChatRequest>;
 
@@ -39,6 +47,7 @@ export interface FelixApi {
   "checkpoint.restore": [RestoreCheckpointRequest, void];
   "settings.get": [void, FelixSettings];
   "settings.set": [FelixSettings, FelixSettings];
+  "provider.models": [ProviderModelsRequest, ProviderModelsResponse];
 }
 
 export type FelixApiChannel = keyof FelixApi;

@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 const PI_PKG = "@earendil-works/pi-coding-agent";
+const NODE_MODULES_DIR = "node_modules";
 
 /**
  * Path to the bundled, self-contained agent install shipped with the app:
@@ -11,7 +12,11 @@ const PI_PKG = "@earendil-works/pi-coding-agent";
  * or the asar-unpacked copy, whose deps don't survive packaging).
  */
 export function bundledAgentPkgDir(resourcesDir: string): string {
-  return path.join(resourcesDir, "agent", "node_modules", ...PI_PKG.split("/"));
+  return bundledAgentNodeModuleDir(resourcesDir, PI_PKG);
+}
+
+export function bundledAgentNodeModuleDir(resourcesDir: string, packageName: string): string {
+  return path.join(resourcesDir, "agent", NODE_MODULES_DIR, ...packageName.split("/"));
 }
 
 function isPackagedResourcesDir(resourcesDir: string): boolean {
@@ -63,4 +68,33 @@ export function resolvePiBin(resourcesDir?: string): string {
   }
 
   throw new Error(`Could not resolve ${PI_PKG}. Is it installed?`);
+}
+
+export function resolvePiPackageDir(
+  packageName: string,
+  resourcesDir?: string,
+): string | null {
+  if (resourcesDir) {
+    const bundled = bundledAgentNodeModuleDir(resourcesDir, packageName);
+    if (fs.existsSync(path.join(bundled, "package.json"))) return bundled;
+  }
+
+  try {
+    const require = createRequire(import.meta.url);
+    const pkgJsonPath = require.resolve(`${packageName}/package.json`);
+    return path.dirname(pkgJsonPath);
+  } catch {
+    // Fall through to manual search.
+  }
+
+  let dir = path.dirname(new URL(import.meta.url).pathname);
+  for (let i = 0; i < 8; i++) {
+    const candidate = path.join(dir, NODE_MODULES_DIR, ...packageName.split("/"));
+    if (fs.existsSync(path.join(candidate, "package.json"))) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  return null;
 }

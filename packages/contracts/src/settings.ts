@@ -1,11 +1,18 @@
 import { z } from "zod";
+import { PROVIDER_CATALOG_BY_ID, ProviderId } from "./providers.ts";
 
-export const ProviderId = z.enum(["openrouter", "deepseek"]);
-export type ProviderId = z.infer<typeof ProviderId>;
+export const ProviderOAuthConfig = z.object({
+  accessToken: z.string().default(""),
+  refreshToken: z.string().default(""),
+  expiresAt: z.string().nullable().default(null),
+  error: z.string().nullable().default(null),
+});
+export type ProviderOAuthConfig = z.infer<typeof ProviderOAuthConfig>;
 
 export const ProviderConfig = z.object({
   id: ProviderId,
   apiKey: z.string().default(""),
+  oauth: ProviderOAuthConfig.optional(),
 });
 export type ProviderConfig = z.infer<typeof ProviderConfig>;
 
@@ -20,7 +27,7 @@ export type FelixSettings = z.infer<typeof FelixSettings>;
 
 export const DEFAULT_SETTINGS: FelixSettings = {
   activeProvider: "openrouter",
-  activeModel: "anthropic/claude-3.5-sonnet",
+  activeModel: PROVIDER_CATALOG_BY_ID.openrouter.defaultModel,
   providers: [],
   sandboxAllowNetwork: true,
   dataDir: null,

@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 
@@ -44,10 +45,7 @@ export default defineConfig({
     // Relative asset paths so they resolve under file:// in the packaged app
     // (an absolute "/felix-icon.png" would point at the OS filesystem root).
     base: "./",
-    plugins: [react()],
-    css: {
-      postcss: webRoot,
-    },
+    plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
         "@": resolve(webRoot, "src"),

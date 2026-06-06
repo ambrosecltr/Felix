@@ -4,7 +4,7 @@
 // of the user's tooling. Bun's workspace install hoists deps into an isolated
 // .bun store with symlinks, which does not survive electron-builder packaging;
 // a dedicated npm install yields a normal, copyable tree.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -17,15 +17,44 @@ const repoRoot = path.join(__dirname, "..");
 const agentDir = path.join(repoRoot, "apps", "desktop", "resources", "agent");
 
 const PI_PKG = "@earendil-works/pi-coding-agent";
+const NVIDIA_NIM_PKG = "pi-nvidia-nim";
+const NVIDIA_NIM_VERSION = "^1.1.22";
+const OPENCODE_BRIDGE_PKG = "pi-opencode-bridge";
+const OPENCODE_BRIDGE_VERSION = "^0.2.1";
 
 function piVersion() {
   // Pin to the version resolved in the workspace so the bundle matches dev.
+  for (const packageJsonPath of workspacePackageJsonCandidates(PI_PKG)) {
+    const version = readPackageVersion(packageJsonPath);
+    if (version) return version;
+  }
+
   try {
     const require = createRequire(import.meta.url);
     const pkgPath = require.resolve(`${PI_PKG}/package.json`, {
       paths: [path.join(repoRoot, "apps", "desktop"), repoRoot],
     });
     return JSON.parse(readFileSync(pkgPath, "utf8")).version;
+  } catch {
+    return null;
+  }
+}
+
+function workspacePackageJsonCandidates(packageName) {
+  const packageParts = packageName.split("/");
+  return [
+    path.join(repoRoot, "apps", "desktop", "node_modules", ...packageParts, "package.json"),
+    path.join(repoRoot, "apps", "core", "node_modules", ...packageParts, "package.json"),
+    path.join(repoRoot, "node_modules", ...packageParts, "package.json"),
+    path.join(repoRoot, "node_modules", ".bun", "node_modules", ...packageParts, "package.json"),
+  ];
+}
+
+function readPackageVersion(packageJsonPath) {
+  if (!existsSync(packageJsonPath)) return null;
+  try {
+    const pkg = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+    return typeof pkg.version === "string" ? pkg.version : null;
   } catch {
     return null;
   }
@@ -43,7 +72,11 @@ async function main() {
       {
         name: "felix-agent-bundle",
         private: true,
-        dependencies: { [PI_PKG]: version ?? "*" },
+        dependencies: {
+          [PI_PKG]: version ?? "*",
+          [NVIDIA_NIM_PKG]: NVIDIA_NIM_VERSION,
+          [OPENCODE_BRIDGE_PKG]: OPENCODE_BRIDGE_VERSION,
+        },
       },
       null,
       2,
@@ -53,7 +86,9 @@ async function main() {
 
   // Use a real npm to get a flat, copyable node_modules (no workspace symlinks).
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  console.log(`Installing ${spec} into ${agentDir}`);
+  console.log(
+    `Installing ${spec}, ${NVIDIA_NIM_PKG}@${NVIDIA_NIM_VERSION}, and ${OPENCODE_BRIDGE_PKG}@${OPENCODE_BRIDGE_VERSION} into ${agentDir}`,
+  );
   execFileSync(npm, ["install", "--omit=dev", "--no-audit", "--no-fund"], {
     cwd: agentDir,
     stdio: "inherit",

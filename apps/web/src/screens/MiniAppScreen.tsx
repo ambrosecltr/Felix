@@ -1,8 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useStore } from "../store.tsx";
+import { useIcon } from "../lib/icon-context.tsx";
 import { Button } from "../components/ui/Button.tsx";
 import { BuildChat } from "../components/BuildChat.tsx";
 import { CheckpointsMenu } from "../components/CheckpointsMenu.tsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog.tsx";
 import { useMiniAppView } from "../components/useMiniAppView.ts";
 import { useResizablePanel } from "../components/useResizablePanel.ts";
 import { felix } from "../bridge.ts";
@@ -20,20 +29,12 @@ export function MiniAppScreen({ appId }: { appId: string }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const AppsIcon = useIcon("arrow-left");
+  const ReloadIcon = useIcon("rotate-ccw");
+  const CheckpointsIcon = useIcon("clock");
+  const TrashIcon = useIcon("trash");
 
   useMiniAppView(placeholderRef, isRunning ? devUrl : null);
-
-  useEffect(() => {
-    if (!showDeleteConfirm || isDeleting) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setDeleteError(null);
-        setShowDeleteConfirm(false);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [showDeleteConfirm, isDeleting]);
 
   const confirmDelete = async () => {
     setIsDeleting(true);
@@ -49,20 +50,26 @@ export function MiniAppScreen({ appId }: { appId: string }) {
   return (
     <div className="flex h-full flex-col">
       <header className="drag-region flex h-12 items-center gap-2 border-b border-border pl-20 pr-3">
-        <Button variant="ghost" size="sm" onClick={goDashboard}>
-          ← Apps
+        <Button variant="ghost" size="sm" leadingIcon={AppsIcon} onClick={goDashboard}>
+          Apps
         </Button>
         <div className="flex items-center gap-2 px-1">
           <span className="text-base leading-none">{app?.emoji ?? "·"}</span>
-          <span className="text-sm font-medium">{app?.name ?? "Loading…"}</span>
+          <span className="text-sm font-medium">{app?.name ?? "Loading..."}</span>
         </div>
         <div className="ml-auto flex items-center gap-1">
-          <Button variant="ghost" size="sm" onClick={() => void felix.view.reload()}>
+          <Button
+            variant="ghost"
+            size="sm"
+            leadingIcon={ReloadIcon}
+            onClick={() => void felix.view.reload()}
+          >
             Reload
           </Button>
           <Button
             variant="ghost"
             size="sm"
+            leadingIcon={CheckpointsIcon}
             onClick={() => {
               setShowDeleteConfirm(false);
               setDeleteError(null);
@@ -93,7 +100,7 @@ export function MiniAppScreen({ appId }: { appId: string }) {
           {!isRunning && (
             <div className="flex h-full items-center justify-center gap-3 text-sm text-muted-foreground">
               <div className="size-4 animate-spin rounded-full border-2 border-muted border-t-primary" />
-              Starting your app…
+              Starting your app...
             </div>
           )}
         </div>
@@ -112,87 +119,75 @@ export function MiniAppScreen({ appId }: { appId: string }) {
         {showCheckpoints && (
           <CheckpointsMenu appId={appId} onClose={() => setShowCheckpoints(false)} />
         )}
-        {showDeleteConfirm && (
-          <DeleteAppConfirm
-            appName={app?.name ?? "this app"}
-            isDeleting={isDeleting}
-            error={deleteError}
-            onCancel={() => {
-              if (isDeleting) return;
-              setDeleteError(null);
-              setShowDeleteConfirm(false);
-            }}
-            onConfirm={() => void confirmDelete()}
-          />
-        )}
+        <DeleteAppConfirm
+          open={showDeleteConfirm}
+          appName={app?.name ?? "this app"}
+          isDeleting={isDeleting}
+          error={deleteError}
+          onOpenChange={(open) => {
+            if (isDeleting) return;
+            setDeleteError(null);
+            setShowDeleteConfirm(open);
+          }}
+          onConfirm={() => void confirmDelete()}
+        />
       </div>
     </div>
   );
 }
 
 function DeleteAppConfirm({
+  open,
   appName,
   isDeleting,
   error,
-  onCancel,
+  onOpenChange,
   onConfirm,
 }: {
+  open: boolean;
   appName: string;
   isDeleting: boolean;
   error: string | null;
-  onCancel: () => void;
+  onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
 }) {
+  const TrashIcon = useIcon("trash");
+
   return (
-    <>
-      <div className="fixed inset-0 z-30 bg-background/30" onClick={onCancel} />
-      <div className="absolute right-3 top-3 z-40 w-80 rounded-xl border border-border bg-popover p-4 text-popover-foreground shadow-lg">
-        <div className="flex items-start gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
-            <TrashIcon />
+    <Dialog open={open} onOpenChange={onOpenChange} modal>
+      <DialogContent>
+        <DialogHeader>
+          <div className="flex items-start gap-3 pr-8">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+              <TrashIcon />
+            </div>
+            <div className="min-w-0 flex-1">
+              <DialogTitle>Delete {appName}?</DialogTitle>
+              <DialogDescription className="mt-1">
+                This removes the app and its chat history from this computer.
+              </DialogDescription>
+            </div>
           </div>
-          <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-semibold">Delete {appName}?</h2>
-            <p className="mt-1 text-sm leading-5 text-muted-foreground">
-              This removes the app and its chat history from this computer.
-            </p>
-          </div>
-        </div>
+        </DialogHeader>
         {error && (
-          <p className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <p className="rounded-3xl bg-destructive-light px-3 py-2 text-sm text-destructive">
             {error}
           </p>
         )}
-        <div className="mt-4 flex justify-end gap-2">
-          <Button variant="ghost" size="sm" disabled={isDeleting} onClick={onCancel}>
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={isDeleting}
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
-          <Button variant="destructive" size="sm" disabled={isDeleting} onClick={onConfirm}>
-            {isDeleting ? "Deleting..." : "Delete"}
+          <Button variant="destructive" size="sm" loading={isDeleting} onClick={onConfirm}>
+            Delete
           </Button>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="size-4"
-      fill="none"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-    >
-      <path d="M3 6h18" />
-      <path d="M8 6V4h8v2" />
-      <path d="M6 6l1 15h10l1-15" />
-      <path d="M10 11v6" />
-      <path d="M14 11v6" />
-    </svg>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

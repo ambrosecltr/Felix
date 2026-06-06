@@ -2,7 +2,12 @@ import { type ChildProcess, spawn } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import type { AgentEvent, ExtensionUiResponse, FelixSettings } from "@felix/contracts";
+import {
+  PROVIDER_CATALOG_BY_ID,
+  type AgentEvent,
+  type ExtensionUiResponse,
+  type FelixSettings,
+} from "@felix/contracts";
 import { FELIX_SYSTEM_PROMPT, felixWorkspaceFiles } from "./agentPrompt.ts";
 import { providerEnv, writeProviderConfig } from "./providerConfig.ts";
 import { buildSeatbeltProfile, isSandboxAvailable, wrapWithSandbox } from "./sandbox.ts";
@@ -10,21 +15,26 @@ import { buildSeatbeltProfile, isSandboxAvailable, wrapWithSandbox } from "./san
 type EventSink = (appId: string, event: AgentEvent) => void;
 const MAX_JSONL_BUFFER_CHARS = 1024 * 1024;
 const STOP_TIMEOUT_MS = 2_000;
+type PiThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+interface PendingToolDetail {
+  toolName: string;
+  detail: string | undefined;
+}
 
 /** Maps raw PI tool names to friendly labels kids can understand. */
 function kidToolLabel(toolName: string): string {
   const name = toolName.toLowerCase();
-  if (name.includes("read") || name === "cat") return "Reading your code…";
+  if (name.includes("read") || name === "cat") return "Reading your code";
   if (name.includes("write") || name.includes("edit") || name.includes("patch")) {
-    return "Writing your code…";
+    return "Writing your code";
   }
   if (name.includes("bash") || name.includes("shell") || name.includes("run") || name.includes("exec")) {
-    return "Running it…";
+    return "Running it";
   }
   if (name.includes("list") || name.includes("glob") || name.includes("grep") || name.includes("search") || name.includes("find")) {
-    return "Looking around…";
+    return "Looking around";
   }
-  return "Working…";
+  return "Working";
 }
 
 interface RunningAgent {
@@ -63,6 +73,7 @@ function attachJsonlReader(
 
 export class AgentManager {
   private agents = new Map<string, RunningAgent>();
+  private pendingToolDetails = new Map<string, PendingToolDetail[]>();
 
   constructor(
     private readonly rootDir: string,
@@ -70,6 +81,7 @@ export class AgentManager {
     private readonly nodeBin: string,
     private readonly onEvent: EventSink,
     private readonly getSettings: () => Promise<FelixSettings>,
+    private readonly piExtensionPaths: readonly string[] = [],
   ) {}
 
   private async ensureWorkspaceFiles(appDir: string, appName: string): Promise<string> {
@@ -93,6 +105,7 @@ export class AgentManager {
 
   async start(appId: string, appDir: string, appName: string): Promise<void> {
     if (this.agents.has(appId)) return;
+    this.pendingToolDetails.delete(appId);
 
     const settings = await this.getSettings();
     await this.ensureWorkspaceFiles(appDir, appName);
@@ -118,6 +131,13 @@ export class AgentManager {
       "--session-id",
       `felix-${appId}`,
     ];
+    const thinkingLevel = piThinkingLevelFor(settings);
+    if (thinkingLevel) {
+      piArgs.push("--thinking", thinkingLevel);
+    }
+    for (const extensionPath of this.piExtensionPaths) {
+      piArgs.push("--extension", extensionPath);
+    }
 
     // Run pi with a real Node runtime (never process.execPath, which is the
     // Electron binary in production and would relaunch the GUI).
@@ -170,6 +190,7 @@ export class AgentManager {
       this.onEvent(appId, { type: "error", message: `Felix couldn't start: ${err.message}` });
       cleanup();
       this.agents.delete(appId);
+      this.pendingToolDetails.delete(appId);
     });
     child.stdin?.on("error", () => {
       /* swallow EPIPE when the agent exits mid-write */
@@ -187,6 +208,7 @@ export class AgentManager {
       }
       cleanup();
       this.agents.delete(appId);
+      this.pendingToolDetails.delete(appId);
     });
   }
 
@@ -223,12 +245,22 @@ export class AgentManager {
         }
         break;
       }
+      case "message": {
+        const message = event.message;
+        if (isRecord(message) && message.role === "assistant") {
+          this.enqueueToolDetails(appId, message);
+          const errorMessage = readString(message.errorMessage);
+          if (errorMessage) this.onEvent(appId, { type: "error", message: errorMessage });
+        }
+        break;
+      }
       case "tool_execution_start": {
         const toolName = String(event.toolName ?? "tool");
         this.onEvent(appId, {
           type: "tool_start",
           toolName,
           label: kidToolLabel(toolName),
+          detail: this.shiftToolDetail(appId, toolName),
         });
         break;
       }
@@ -247,6 +279,39 @@ export class AgentManager {
       default:
         break;
     }
+  }
+
+  private enqueueToolDetails(appId: string, message: Record<string, unknown>): void {
+    const content = message.content;
+    if (!Array.isArray(content)) return;
+
+    const details = content
+      .filter(isRecord)
+      .filter((item) => item.type === "toolCall" && typeof item.name === "string")
+      .map((item): PendingToolDetail => ({
+        toolName: item.name as string,
+        detail: toolCallDetail(item.name as string, item.arguments),
+      }));
+    if (details.length === 0) return;
+
+    const current = this.pendingToolDetails.get(appId) ?? [];
+    this.pendingToolDetails.set(appId, [...current, ...details]);
+  }
+
+  private shiftToolDetail(appId: string, toolName: string): string | undefined {
+    const details = this.pendingToolDetails.get(appId);
+    if (!details || details.length === 0) return undefined;
+
+    const index = details.findIndex((detail) => detail.toolName === toolName);
+    if (index === -1) return undefined;
+
+    const [detail] = details.splice(index, 1);
+    if (details.length === 0) {
+      this.pendingToolDetails.delete(appId);
+    } else {
+      this.pendingToolDetails.set(appId, details);
+    }
+    return detail?.detail;
   }
 
   isStreaming(appId: string): boolean {
@@ -278,12 +343,57 @@ export class AgentManager {
     running.process.kill("SIGTERM");
     running.cleanup();
     this.agents.delete(appId);
+    this.pendingToolDetails.delete(appId);
     await stopped;
   }
 
   stopAll(): void {
     for (const id of [...this.agents.keys()]) void this.stop(id);
   }
+}
+
+function piThinkingLevelFor(settings: FelixSettings): PiThinkingLevel | null {
+  const provider = PROVIDER_CATALOG_BY_ID[settings.activeProvider];
+  return provider.modelSource === "opencode-registry" ? "off" : null;
+}
+
+function toolCallDetail(toolName: string, args: unknown): string | undefined {
+  const normalizedName = toolName.toLowerCase();
+  const record = isRecord(args) ? args : {};
+  const targetPath = readString(record.path) ?? readString(record.filePath) ?? readString(record.file);
+  const command = readString(record.command) ?? readString(record.cmd);
+  const query = readString(record.query) ?? readString(record.pattern);
+
+  if (normalizedName.includes("read") || normalizedName === "cat") {
+    return targetPath ? `Read ${shortenToolText(targetPath)}` : "Read a file";
+  }
+  if (normalizedName.includes("write")) {
+    return targetPath ? `Wrote ${shortenToolText(targetPath)}` : "Wrote a file";
+  }
+  if (normalizedName.includes("edit") || normalizedName.includes("patch")) {
+    return targetPath ? `Edited ${shortenToolText(targetPath)}` : "Edited a file";
+  }
+  if (normalizedName.includes("bash") || normalizedName.includes("shell") || normalizedName.includes("run") || normalizedName.includes("exec")) {
+    return command ? `Ran ${shortenToolText(command)}` : "Ran a command";
+  }
+  if (normalizedName.includes("grep") || normalizedName.includes("search") || normalizedName.includes("find")) {
+    if (query && targetPath) return `Searched ${shortenToolText(targetPath)} for ${shortenToolText(query)}`;
+    if (query) return `Searched for ${shortenToolText(query)}`;
+    if (targetPath) return `Searched ${shortenToolText(targetPath)}`;
+    return "Searched the workspace";
+  }
+  if (normalizedName.includes("list") || normalizedName.includes("glob")) {
+    return targetPath ? `Explored ${shortenToolText(targetPath)}` : "Explored the workspace";
+  }
+  return undefined;
+}
+
+function shortenToolText(value: string): string {
+  const normalized = value.replaceAll("\\", "/").trim();
+  if (normalized.length <= 80) return normalized;
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length >= 3) return `.../${parts.slice(-3).join("/")}`;
+  return `${normalized.slice(0, 77)}...`;
 }
 
 async function fileExists(filePath: string): Promise<boolean> {
@@ -327,6 +437,14 @@ function normalizeExtensionUiRequest(
     request.timeout = event.timeout;
   }
   return request;
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function waitForExit(child: ChildProcess, timeoutMs: number): Promise<void> {

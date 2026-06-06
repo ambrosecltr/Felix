@@ -4,11 +4,15 @@ import { watch, type FSWatcher } from "node:fs";
 import * as path from "node:path";
 import {
   type AgentEvent,
+  type ChatAttachment,
+  type ChatAttachmentInput,
   type ChatTurn,
   type Checkpoint,
+  MAX_CHAT_ATTACHMENT_BYTES,
   type MiniAppManifest,
   type MiniAppStatus,
   type MiniAppSummary,
+  type ProviderModelsRequest,
   type PushEvent,
 } from "@felix/contracts";
 import * as git from "@felix/shared/git";
@@ -19,6 +23,8 @@ import { AgentManager } from "./agentManager.ts";
 import { bundledBunPath, resolveBun } from "./bunRuntime.ts";
 import { ChatStore } from "./chatStore.ts";
 import { bundledNodePath, resolveMiniAppNode } from "./nodeRuntime.ts";
+import { listProviderModels } from "./providerModels.ts";
+import { resolvePiPackageDir } from "./resolvePi.ts";
 import { SettingsStore } from "./settingsStore.ts";
 import { ViteManager } from "./viteManager.ts";
 
@@ -60,12 +66,16 @@ export class MiniAppManager {
         : undefined,
     });
     this.vite = new ViteManager(nodeBin);
+    const piExtensionPaths = ["pi-nvidia-nim", "pi-opencode-bridge"]
+      .map((packageName) => resolvePiPackageDir(packageName, options.resourcesDir))
+      .filter((extensionPath): extensionPath is string => extensionPath !== null);
     this.agent = new AgentManager(
       this.paths.root,
       this.piBinPath,
       nodeBin,
       (appId, event) => this.handleAgentEvent(appId, event),
       () => this.settings.get(),
+      piExtensionPaths,
     );
   }
 
@@ -277,23 +287,66 @@ export class MiniAppManager {
     return this.chatStore(appId).list();
   }
 
-  async sendChat(appId: string, text: string): Promise<void> {
+  async sendChat(
+    appId: string,
+    text: string,
+    attachmentInputs: ChatAttachmentInput[] = [],
+  ): Promise<void> {
     const dir = this.appDir(appId);
     const manifest = await this.readManifest(appId);
     if (!manifest) throw new Error(`Mini app not found: ${appId}`);
 
+    const attachments = await this.persistChatAttachments(dir, attachmentInputs);
     await this.agent.start(appId, dir, manifest.name);
 
     const store = this.chatStore(appId);
-    const kidTurn = await store.appendKidTurn(text);
+    const kidTurn = await store.appendKidTurn(text, attachments);
     this.emit({ kind: "chatTurn", appId, turn: kidTurn });
 
-    await git.checkpoint(dir, `Before: ${text.slice(0, 60)}`, "kid");
+    await git.checkpoint(dir, checkpointMessage(text, attachments), "kid");
 
     manifest.updatedAt = new Date().toISOString();
     await this.writeManifest(manifest);
 
-    this.agent.prompt(appId, text);
+    this.agent.prompt(appId, promptWithAttachments(text, attachments));
+  }
+
+  private async persistChatAttachments(
+    appDir: string,
+    inputs: ChatAttachmentInput[],
+  ): Promise<ChatAttachment[]> {
+    if (inputs.length === 0) return [];
+
+    const attachments: ChatAttachment[] = [];
+    const attachmentsDir = path.join(appDir, ".felix", "attachments");
+    await fs.mkdir(attachmentsDir, { recursive: true });
+
+    for (const input of inputs) {
+      const bytes = Buffer.from(input.dataBase64, "base64");
+      if (bytes.byteLength !== input.size) {
+        throw new Error(`Attachment size mismatch for ${input.name}`);
+      }
+      if (bytes.byteLength > MAX_CHAT_ATTACHMENT_BYTES) {
+        throw new Error(`Attachment is too large: ${input.name}`);
+      }
+
+      const id = newId("attachment");
+      const safeName = safeAttachmentName(input.name);
+      const attachmentDir = path.join(attachmentsDir, id);
+      const filePath = path.join(attachmentDir, safeName);
+      await fs.mkdir(attachmentDir, { recursive: true });
+      await fs.writeFile(filePath, bytes);
+
+      attachments.push({
+        id,
+        name: input.name,
+        mimeType: input.mimeType || "application/octet-stream",
+        size: input.size,
+        relativePath: toPosixPath(path.relative(appDir, filePath)),
+      });
+    }
+
+    return attachments;
   }
 
   abortChat(appId: string): void {
@@ -322,6 +375,10 @@ export class MiniAppManager {
 
   setSettings(next: Parameters<SettingsStore["set"]>[0]) {
     return this.settings.set(next);
+  }
+
+  listProviderModels(request: ProviderModelsRequest) {
+    return listProviderModels(request);
   }
 
   // --- internals ---
@@ -410,6 +467,7 @@ export class MiniAppManager {
           type: "tool",
           toolName: event.toolName,
           label: event.label ?? event.toolName,
+          detail: event.detail,
         });
         return;
       case "tool_end":
@@ -443,4 +501,47 @@ function firstGrapheme(input: string): string {
     for (const { segment } of segmenter.segment(input)) return segment;
   }
   return [...input][0] ?? "";
+}
+
+function safeAttachmentName(name: string): string {
+  const baseName = path.basename(name).trim();
+  const sanitized = baseName
+    .replace(/[/\\]/g, "_")
+    .replace(/[^\w .()@+-]/g, "_")
+    .replace(/\s+/g, " ")
+    .slice(0, 160)
+    .trim();
+  return sanitized.length > 0 ? sanitized : "attachment";
+}
+
+function toPosixPath(filePath: string): string {
+  return filePath.split(path.sep).join("/");
+}
+
+function promptWithAttachments(text: string, attachments: ChatAttachment[]): string {
+  const trimmed = text.trim();
+  if (attachments.length === 0) return trimmed;
+
+  const attachmentLines = attachments
+    .map(
+      (attachment) =>
+        `- ${attachment.name} (${attachment.mimeType}, ${formatBytes(attachment.size)}): ${attachment.relativePath}`,
+    )
+    .join("\n");
+
+  const prefix = trimmed.length > 0 ? `${trimmed}\n\n` : "";
+  return `${prefix}Attached files are saved in this app workspace:\n${attachmentLines}\n\nRead those files as needed before making changes.`;
+}
+
+function checkpointMessage(text: string, attachments: ChatAttachment[]): string {
+  const trimmed = text.trim();
+  const label = trimmed.length > 0 ? trimmed : `${attachments.length} attached file(s)`;
+  return `Before: ${label.slice(0, 60)}`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kilobytes = bytes / 1024;
+  if (kilobytes < 1024) return `${kilobytes.toFixed(1)} KB`;
+  return `${(kilobytes / 1024).toFixed(1)} MB`;
 }

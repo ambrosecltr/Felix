@@ -1,6 +1,11 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { ChatTurn, type ChatStep, type ChatTurnStatus } from "@felix/contracts";
+import {
+  ChatTurn,
+  type ChatAttachment,
+  type ChatStep,
+  type ChatTurnStatus,
+} from "@felix/contracts";
 import { newId } from "@felix/shared/ids";
 
 export class ChatStore {
@@ -56,13 +61,14 @@ export class ChatStore {
     }
   }
 
-  async appendKidTurn(text: string): Promise<ChatTurn> {
+  async appendKidTurn(text: string, attachments: ChatAttachment[] = []): Promise<ChatTurn> {
     const turns = await this.mutableTurns();
     const turn: ChatTurn = {
       id: newId("turn"),
       role: "kid",
       text,
       steps: [],
+      attachments,
       status: "done",
       createdAt: new Date().toISOString(),
     };
@@ -78,6 +84,7 @@ export class ChatStore {
       role: "felix",
       text: "",
       steps: [],
+      attachments: [],
       status: "working",
       createdAt: new Date().toISOString(),
     };
@@ -128,6 +135,7 @@ export class ChatStore {
 
   async finishTurn(status: ChatTurnStatus, fallbackText?: string): Promise<ChatTurn | null> {
     return this.updateLastTurn((turn) => {
+      if (turn.status === "error" && status === "done") return;
       turn.status = status;
       const text = lastTextOf(turn);
       turn.text = text.length > 0 ? text : (fallbackText ?? turn.text);
@@ -144,6 +152,7 @@ export class ChatStore {
       role: "felix",
       text,
       steps: [],
+      attachments: [],
       status: "error",
       createdAt: new Date().toISOString(),
     };

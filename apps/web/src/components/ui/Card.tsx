@@ -1,10 +1,16 @@
-import type { HTMLAttributes } from "react";
-import { cn } from "../../lib/cn.ts";
+import type { ComponentPropsWithoutRef } from "react";
+import { Elevated } from "../../lib/elevated.tsx";
+import { useShape } from "../../lib/shape-context.tsx";
+import { cn } from "../../lib/utils.ts";
 
-export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
+export function Card({ className, ...props }: ComponentPropsWithoutRef<"div">) {
+  const shape = useShape();
+
   return (
-    <div
-      className={cn("rounded-xl border border-border bg-card text-card-foreground shadow-sm", className)}
+    <Elevated
+      offset={1}
+      shadowLevel={2}
+      className={cn(shape.container, "text-card-foreground", className)}
       {...props}
     />
   );

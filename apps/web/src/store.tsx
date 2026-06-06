@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import type {
+  ChatAttachmentInput,
   ChatStep,
   ChatTurn,
   ExtensionUiResponse,
@@ -31,9 +32,9 @@ interface StoreValue {
   goDashboard: () => void;
   goSettings: () => void;
   openApp: (appId: string) => Promise<void>;
-  createApp: (prompt: string) => Promise<void>;
+  createApp: (prompt: string, attachments?: ChatAttachmentInput[]) => Promise<void>;
   deleteApp: (appId: string) => Promise<void>;
-  sendChat: (appId: string, text: string) => Promise<void>;
+  sendChat: (appId: string, text: string, attachments?: ChatAttachmentInput[]) => Promise<void>;
   abortChat: (appId: string) => Promise<void>;
   respondToUiRequest: (appId: string, response: ExtensionUiResponse) => Promise<void>;
 }
@@ -93,6 +94,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             type: "tool",
             toolName: e.toolName,
             label: e.label ?? e.toolName,
+            detail: e.detail,
           });
         } else if (e.type === "tool_end") {
           markToolEnd(event.appId, e.toolName, e.isError);
@@ -132,6 +134,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         role: "felix",
         text: "",
         steps: [],
+        attachments: [],
         status: "working",
         createdAt: new Date().toISOString(),
       };
@@ -200,11 +203,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             role: "felix",
             text: fallbackText ?? "Oops, something went wrong.",
             steps: [],
+            attachments: [],
             status,
             createdAt: new Date().toISOString(),
           };
           return { ...prev, [appId]: [...list, turn] };
         }
+        if (last.status === "error" && status === "done") return prev;
         const text = lastTextOf(last);
         const turn = {
           ...last,
@@ -231,7 +236,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const createApp = useCallback(
-    async (prompt: string) => {
+    async (prompt: string, attachments: ChatAttachmentInput[] = []) => {
       const summary = await felix.invoke("miniApp.create", { prompt });
       await refreshApps();
       setView({ name: "miniApp", appId: summary.id });
@@ -240,7 +245,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         [summary.id]: { status: summary.status, devUrl: summary.devUrl },
       }));
       await felix.invoke("miniApp.open", { appId: summary.id });
-      await felix.invoke("chat.send", { appId: summary.id, text: prompt });
+      await felix.invoke("chat.send", { appId: summary.id, text: prompt, attachments });
     },
     [refreshApps],
   );
@@ -269,9 +274,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [refreshApps],
   );
 
-  const sendChat = useCallback(async (appId: string, text: string) => {
-    await felix.invoke("chat.send", { appId, text });
-  }, []);
+  const sendChat = useCallback(
+    async (appId: string, text: string, attachments: ChatAttachmentInput[] = []) => {
+      await felix.invoke("chat.send", { appId, text, attachments });
+    },
+    [],
+  );
 
   const abortChat = useCallback(async (appId: string) => {
     await felix.invoke("chat.abort", { appId });

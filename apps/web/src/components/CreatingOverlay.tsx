@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ThinkingIndicator } from "./ui/thinking-indicator.tsx";
 
 const STEPS = [
   "Getting your workspace ready…",
@@ -20,7 +21,7 @@ export function CreatingOverlay() {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-5 bg-background/80 backdrop-blur-sm">
-      <div className="size-6 animate-spin rounded-full border-2 border-muted border-t-primary" />
+      <ThinkingIndicator showText={false} />
       <div className="text-sm text-muted-foreground">{STEPS[step]}</div>
     </div>
   );
