@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { buildPromptCommand, readAgentTokenUsageEvent } from "../src/agentManager.ts";
+import {
+  buildAgentPath,
+  buildPromptCommand,
+  readAgentTokenUsageEvent,
+} from "../src/agentManager.ts";
 
 describe("agent prompt commands", () => {
   test("omits images when none are prepared", () => {
@@ -83,5 +87,24 @@ describe("agent prompt commands", () => {
       cacheWrite: 0,
       totalTokens: 18,
     });
+  });
+
+  test("builds a packaged-agent path with bundled runtimes and app binaries first", () => {
+    expect(
+      buildAgentPath({
+        appDir: "/Users/alex/Library/Application Support/Felix/apps/snake",
+        nodeBin: "/Applications/Felix.app/Contents/Resources/node/bin/node",
+        bunBin: "/Applications/Felix.app/Contents/Resources/bun/bin/bun",
+        inheritedPath: "/usr/bin:/bin",
+      }),
+    ).toBe(
+      [
+        "/Applications/Felix.app/Contents/Resources/node/bin",
+        "/Applications/Felix.app/Contents/Resources/bun/bin",
+        "/Users/alex/Library/Application Support/Felix/apps/snake/node_modules/.bin",
+        "/usr/bin",
+        "/bin",
+      ].join(":"),
+    );
   });
 });

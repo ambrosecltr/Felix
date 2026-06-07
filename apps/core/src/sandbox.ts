@@ -12,15 +12,23 @@ import * as os from "node:os";
  */
 export function buildSeatbeltProfile(options: {
   appDir: string;
+  agentDir?: string;
   allowNetwork: boolean;
 }): string {
-  const { appDir, allowNetwork } = options;
+  const { appDir, agentDir, allowNetwork } = options;
   const home = os.homedir();
   const tmp = os.tmpdir();
 
-  const writable = [appDir, tmp, `${home}/.bun`, `${home}/.npm`, `${home}/.cache`];
+  const writable = [
+    appDir,
+    agentDir,
+    tmp,
+    `${home}/.bun`,
+    `${home}/.npm`,
+    `${home}/.cache`,
+  ].filter((p): p is string => typeof p === "string" && p.length > 0);
   const writeRules = writable
-    .map((p) => `  (subpath "${p}")`)
+    .map((p) => `  (subpath "${seatbeltPath(p)}")`)
     .join("\n");
 
   return `(version 1)
@@ -44,6 +52,10 @@ ${writeRules}
 ; Network.
 ${allowNetwork ? "(allow network*)" : "(deny network*)"}
 `;
+}
+
+function seatbeltPath(filePath: string): string {
+  return filePath.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 export function isSandboxAvailable(): boolean {

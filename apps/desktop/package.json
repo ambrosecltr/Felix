@@ -1,6 +1,6 @@
 {
   "name": "@felix/desktop",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "private": true,
   "type": "module",
   "main": "dist/main/main.js",
@@ -10,8 +10,10 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit",
-    "package": "node ../../scripts/build-macos-window-chrome.mjs && node ../../scripts/fetch-node-runtime.mjs && node ../../scripts/fetch-bun-runtime.mjs && node ../../scripts/bundle-agent.mjs && electron-vite build && electron-builder --mac --config electron-builder.yml",
-    "package:unsigned": "node ../../scripts/build-macos-window-chrome.mjs && node ../../scripts/fetch-node-runtime.mjs && node ../../scripts/fetch-bun-runtime.mjs && node ../../scripts/bundle-agent.mjs && electron-vite build && electron-builder --mac --config electron-builder.yml -c.mac.identity=null -c.mac.forceCodeSigning=false -c.mac.notarize=false"
+    "verify:package": "node ../../scripts/verify-desktop-package.mjs",
+    "verify:release": "node ../../scripts/verify-desktop-package.mjs --release",
+    "package": "node ../../scripts/build-macos-window-chrome.mjs && node ../../scripts/fetch-node-runtime.mjs && node ../../scripts/fetch-bun-runtime.mjs && node ../../scripts/bundle-agent.mjs && electron-vite build && rm -rf release && electron-builder --mac --config electron-builder.yml && bun run verify:package",
+    "package:unsigned": "node ../../scripts/build-macos-window-chrome.mjs && node ../../scripts/fetch-node-runtime.mjs && node ../../scripts/fetch-bun-runtime.mjs && node ../../scripts/bundle-agent.mjs && electron-vite build && rm -rf release && electron-builder --mac --config electron-builder.yml -c.mac.identity=null -c.mac.forceCodeSigning=false -c.mac.notarize=false && bun run verify:package"
   },
   "dependencies": {
     "@felix/contracts": "*",

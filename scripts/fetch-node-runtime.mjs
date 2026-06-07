@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Downloads a standalone Node runtime (>= 22.5, which includes node:sqlite)
-// into apps/desktop/resources/node so packaged Felix can run mini app dev
-// servers independently of Electron's bundled Node.
+// Downloads a standalone Node runtime into apps/desktop/resources/node so
+// packaged Felix can run mini app dev servers and PI independently of
+// Electron's bundled Node. PI currently requires Node >= 22.19.0.
 import { createWriteStream } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { pipeline } from "node:stream/promises";
 
-const NODE_VERSION = process.env.FELIX_NODE_VERSION ?? "v22.14.0";
+const NODE_VERSION = process.env.FELIX_NODE_VERSION ?? "v22.19.0";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const resourcesDir = path.join(__dirname, "..", "apps", "desktop", "resources", "node");

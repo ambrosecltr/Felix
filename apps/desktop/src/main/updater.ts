@@ -1,11 +1,9 @@
-import { createRequire } from "node:module";
 import { app } from "electron";
-import type { ProgressInfo, UpdateDownloadedEvent, UpdateInfo } from "electron-updater";
+import { autoUpdater, type ProgressInfo, type UpdateDownloadedEvent, type UpdateInfo } from "electron-updater";
 import type { UpdateDownloadProgress, UpdateStatus } from "@felix/contracts";
 
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;
 const SIMULATED_UPDATE_VERSION = "99.0.0";
-const { autoUpdater } = createRequire(import.meta.url)("electron-updater") as typeof import("electron-updater");
 
 export class UpdateController {
   private status: UpdateStatus = {

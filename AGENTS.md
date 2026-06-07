@@ -88,6 +88,14 @@ node -e 'const {createHash}=require("node:crypto"); const {readFileSync,statSync
 hdiutil verify apps/desktop/release/Felix-<version>-arm64.dmg
 ```
 
+Run the final packaged-app release verifier after the app and DMG are signed,
+notarized, stapled, and the DMG blockmap / `latest-mac.yml` metadata have been
+regenerated:
+
+```bash
+bun run verify:desktop:release
+```
+
 10. Create a GitHub Release for the matching tag, for example `v0.0.4`.
 11. Upload every generated update artifact:
 

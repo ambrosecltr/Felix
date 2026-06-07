@@ -14,6 +14,7 @@ export default defineConfig({
           "@felix/contracts",
           "@felix/shared",
           "@felix/mini-app-template",
+          "electron-updater",
         ],
       }),
     ],

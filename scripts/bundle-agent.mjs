@@ -15,6 +15,15 @@ import { createRequire } from "node:module";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(__dirname, "..");
 const agentDir = path.join(repoRoot, "apps", "desktop", "resources", "agent");
+const bundledNodeBin = path.join(
+  repoRoot,
+  "apps",
+  "desktop",
+  "resources",
+  "node",
+  "bin",
+  process.platform === "win32" ? "node.exe" : "node",
+);
 
 const PI_PKG = "@earendil-works/pi-coding-agent";
 const NVIDIA_NIM_PKG = "pi-nvidia-nim";
@@ -95,9 +104,11 @@ async function main() {
     env: { ...process.env },
   });
 
-  // Sanity check: the CLI must load with its deps resolved.
+  // Sanity check: the CLI must load with its deps resolved under the same
+  // bundled Node runtime the packaged app will use.
   const cli = path.join(agentDir, "node_modules", ...PI_PKG.split("/"), "dist", "cli.js");
-  execFileSync(process.execPath, [cli, "--version"], { stdio: "inherit" });
+  const verificationNode = existsSync(bundledNodeBin) ? bundledNodeBin : process.execPath;
+  execFileSync(verificationNode, [cli, "--version"], { stdio: "inherit" });
   console.log(`Agent bundle ready at ${agentDir}`);
 }
 

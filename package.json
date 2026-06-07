@@ -1,6 +1,6 @@
 {
   "name": "felix",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -19,6 +19,8 @@
     "setup:bun": "node scripts/fetch-bun-runtime.mjs",
     "bundle:agent": "node scripts/bundle-agent.mjs",
     "make:icon": "node scripts/make-app-icon.mjs",
+    "verify:desktop:package": "cd apps/desktop && bun run verify:package",
+    "verify:desktop:release": "cd apps/desktop && bun run verify:release",
     "package:desktop": "cd apps/desktop && bun run package",
     "package:desktop:unsigned": "cd apps/desktop && bun run package:unsigned"
   },

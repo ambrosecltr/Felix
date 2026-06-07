@@ -104,6 +104,7 @@ export class MiniAppManager {
       this.paths.root,
       this.piBinPath,
       nodeBin,
+      this.bunBin,
       (appId, event) => this.handleAgentEvent(appId, event),
       () => this.settings.get(),
       piExtensionPaths,

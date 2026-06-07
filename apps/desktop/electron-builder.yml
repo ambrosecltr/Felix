@@ -27,7 +27,8 @@ files:
 # Ship the bundled standalone Node + bun runtimes, the self-contained PI agent
 # install (with its full dependency tree), and the icon as plain on-disk files
 # (extraResources lands outside the asar, so Node resolves the agent's deps
-# normally and the binaries are directly executable).
+# normally and the binaries are directly executable). Felix uses icon.png at
+# runtime for BrowserWindow/dock icons; icon.icns is for the .app bundle.
 extraResources:
   - from: resources/node
     to: node
@@ -37,6 +38,8 @@ extraResources:
     to: agent
   - from: resources/native
     to: native
+  - from: resources/icon.png
+    to: icon.png
   - from: resources/icon.icns
     to: icon.icns
 

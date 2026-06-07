@@ -89,6 +89,7 @@ export class AgentManager {
     private readonly rootDir: string,
     private readonly piBinPath: string,
     private readonly nodeBin: string,
+    private readonly bunBin: string,
     private readonly onEvent: EventSink,
     private readonly getSettings: () => Promise<FelixSettings>,
     private readonly piExtensionPaths: readonly string[] = [],
@@ -106,8 +107,12 @@ export class AgentManager {
     return piDir;
   }
 
-  private async writeSandboxProfile(appDir: string, allowNetwork: boolean): Promise<string> {
-    const profile = buildSeatbeltProfile({ appDir, allowNetwork });
+  private async writeSandboxProfile(
+    appDir: string,
+    agentDir: string,
+    allowNetwork: boolean,
+  ): Promise<string> {
+    const profile = buildSeatbeltProfile({ appDir, agentDir, allowNetwork });
     const profilePath = path.join(appDir, ".pi", `sandbox-${process.pid}.sb`);
     await fs.writeFile(profilePath, profile, { encoding: "utf8", mode: 0o600 });
     return profilePath;
@@ -156,13 +161,23 @@ export class AgentManager {
     let sandboxProfilePath: string | null = null;
 
     if (isSandboxAvailable()) {
-      sandboxProfilePath = await this.writeSandboxProfile(appDir, settings.sandboxAllowNetwork);
+      sandboxProfilePath = await this.writeSandboxProfile(
+        appDir,
+        agentDir,
+        settings.sandboxAllowNetwork,
+      );
       ({ command, args } = wrapWithSandbox(sandboxProfilePath, command, args));
     }
 
     const agentEnv: NodeJS.ProcessEnv = {
       ...process.env,
       ...providerEnv(settings),
+      PATH: buildAgentPath({
+        appDir,
+        nodeBin: this.nodeBin,
+        bunBin: this.bunBin,
+        inheritedPath: process.env.PATH,
+      }),
       PI_AGENT_DIR: agentDir,
       IMPECCABLE_NO_UPDATE_CHECK: "1",
       FELIX_SYSTEM_PROMPT,
@@ -399,6 +414,21 @@ export function buildPromptCommand(
   if (images.length > 0) command.images = images;
   if (streaming) command.streamingBehavior = "steer";
   return command;
+}
+
+export function buildAgentPath(options: {
+  appDir: string;
+  nodeBin: string;
+  bunBin: string;
+  inheritedPath?: string;
+}): string {
+  const entries = [
+    path.dirname(options.nodeBin),
+    path.dirname(options.bunBin),
+    path.join(options.appDir, "node_modules", ".bin"),
+    ...(options.inheritedPath?.split(path.delimiter) ?? []),
+  ];
+  return [...new Set(entries.filter((entry) => entry.length > 0))].join(path.delimiter);
 }
 
 function sessionIdFor(appId: string): string {
