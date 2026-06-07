@@ -574,7 +574,13 @@ export class MiniAppManager {
   }
 
   async restoreCheckpoint(appId: string, checkpointId: string): Promise<void> {
+    if (this.agent.isStreaming(appId)) {
+      throw new Error("Wait for Felix to finish before going back to a saved version.");
+    }
+    await this.persistQueues.get(appId)?.catch(() => {});
     await git.restoreCheckpoint(this.appDir(appId), checkpointId);
+    this.chatStores.delete(appId);
+    this.persistQueues.delete(appId);
   }
 
   // --- settings ---

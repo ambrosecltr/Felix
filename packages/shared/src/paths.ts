@@ -40,7 +40,7 @@ export interface MiniAppPaths {
 }
 
 export function miniAppPaths(appsDir: string, appId: string): MiniAppPaths {
-  const root = path.join(appsDir, appId);
+  const root = safeMiniAppRoot(appsDir, appId);
   return {
     root,
     manifestFile: path.join(root, "felix.json"),
@@ -48,4 +48,20 @@ export function miniAppPaths(appsDir: string, appId: string): MiniAppPaths {
     chatFile: path.join(root, ".felix", "chat.json"),
     aboutFile: path.join(root, ".felix", "about.json"),
   };
+}
+
+function safeMiniAppRoot(appsDir: string, appId: string): string {
+  const root = path.join(appsDir, appId);
+  const relative = path.relative(path.resolve(appsDir), path.resolve(root));
+  if (
+    appId.trim().length === 0 ||
+    appId.includes("/") ||
+    appId.includes("\\") ||
+    relative === "" ||
+    relative.startsWith("..") ||
+    path.isAbsolute(relative)
+  ) {
+    throw new Error(`Invalid mini app id: ${appId}`);
+  }
+  return root;
 }

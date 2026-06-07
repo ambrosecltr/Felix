@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@felix/contracts": "*"
+    "@felix/contracts": "*",
+    "isomorphic-git": "^1.38.4"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",

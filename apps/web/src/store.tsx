@@ -293,6 +293,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         delete next[appId];
         return next;
       });
+      setUiRequests((prev) => {
+        const next = { ...prev };
+        delete next[appId];
+        return next;
+      });
       await refreshApps();
       setView({ name: "dashboard" });
     },
