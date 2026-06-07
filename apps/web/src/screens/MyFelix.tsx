@@ -43,7 +43,7 @@ export function MyFelixPanel() {
         <div className="flex flex-col items-center gap-3 text-center">
           <ProfileInitials name={displayName} size="lg" />
           <div className="flex max-w-full flex-col items-center gap-1">
-            <div className="flex max-w-full items-center justify-center gap-1.5">
+            <div className="relative flex max-w-full items-center justify-center">
               <h1 className="max-w-xl truncate text-2xl font-semibold tracking-tight">{displayName}</h1>
               <Button
                 variant="ghost"
@@ -51,6 +51,7 @@ export function MyFelixPanel() {
                 onClick={() => setEditingName(true)}
                 title="Edit name"
                 aria-label="Edit name"
+                className="absolute left-full ml-1.5"
               >
                 <PencilIcon />
               </Button>
@@ -117,7 +118,7 @@ export function MyFelixPanel() {
         <DialogContent size="sm">
           <DialogHeader>
             <DialogTitle>Edit profile</DialogTitle>
-            <DialogDescription>Update the name used for your My Felix profile.</DialogDescription>
+            <DialogDescription>Update your name used for your My Felix profile.</DialogDescription>
           </DialogHeader>
           <ProfileNameForm
             initialName={profile.name}

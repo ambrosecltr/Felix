@@ -6,6 +6,7 @@ import {
   WEB_SEARCH_PROVIDER_CATALOG,
   WEB_SEARCH_PROVIDER_CATALOG_BY_ID,
   type FelixSettings,
+  type LearningLevel,
   type ProviderCatalogEntry,
   type ProviderConfig,
   type ProviderId,
@@ -31,7 +32,25 @@ import {
 } from "../components/ui/select.tsx";
 import { Switch } from "../components/ui/switch.tsx";
 
-type SettingsTab = "provider" | "icons" | "integrations" | "permissions" | "lockdown";
+type SettingsTab = "provider" | "learning" | "icons" | "integrations" | "permissions" | "lockdown";
+
+const LEARNING_LEVEL_OPTIONS: { value: LearningLevel; label: string; description: string }[] = [
+  {
+    value: "beginner",
+    label: "Beginner",
+    description: "Felix just builds and celebrates in plain words.",
+  },
+  {
+    value: "intermediate",
+    label: "Intermediate",
+    description: "Felix adds a tiny fun fact about coding as it builds.",
+  },
+  {
+    value: "advanced",
+    label: "Advanced",
+    description: "Felix names real coding words and sometimes shows small bits of code.",
+  },
+];
 
 interface SettingsTabItem {
   id: SettingsTab;
@@ -48,6 +67,10 @@ const SETTINGS_TABS: SettingsTabItem[] = [
   {
     id: "provider",
     label: "Provider settings"
+  },
+  {
+    id: "learning",
+    label: "Learning"
   },
   {
     id: "icons",
@@ -69,6 +92,7 @@ const SETTINGS_TABS: SettingsTabItem[] = [
 
 const INITIAL_SECTION_STATE: Record<SettingsTab, SectionSaveState> = {
   provider: { saving: false, saved: false, error: null },
+  learning: { saving: false, saved: false, error: null },
   icons: { saving: false, saved: false, error: null },
   integrations: { saving: false, saved: false, error: null },
   permissions: { saving: false, saved: false, error: null },
@@ -308,6 +332,10 @@ export function Settings() {
     updateSettings("icons", (current) => ({ ...current, iconGeneration: iconSettings }));
   };
 
+  const setLearningLevel = (level: LearningLevel) => {
+    updateSettings("learning", (current) => ({ ...current, learningLevel: level }));
+  };
+
   const setWebSearchProvider = (id: WebSearchProviderId) => {
     const provider = WEB_SEARCH_PROVIDER_CATALOG_BY_ID[id];
     updateSettings("integrations", (current) => {
@@ -545,6 +573,44 @@ export function Settings() {
                     </Button>
                   </div>
                   <p className={modelStatusClass}>{modelStatus}</p>
+                </div>
+                  </SettingsSection>
+                </SettingsMotionPanel>
+              ) : null}
+
+              {activeTab === "learning" ? (
+                <SettingsMotionPanel
+                  key="learning"
+                  direction={tabDirection}
+                  reducedMotion={shouldReduceMotion}
+                >
+                  <SettingsSection
+                    title="Learning level"
+                    description="How much Felix explains while it builds, so kids can learn as they play."
+                    status={sectionState.learning}
+                    onSave={() => void saveSection("learning")}
+                  >
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Level</label>
+                  <Select
+                    value={settings.learningLevel}
+                    onValueChange={(value) => setLearningLevel(value as LearningLevel)}
+                  >
+                    <SelectTrigger className="w-full" />
+                    <SelectContent>
+                      <SelectGroup>
+                        {LEARNING_LEVEL_OPTIONS.map((option, index) => (
+                          <SelectItem key={option.value} index={index} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {LEARNING_LEVEL_OPTIONS.find((option) => option.value === settings.learningLevel)
+                      ?.description ?? ""}
+                  </p>
                 </div>
                   </SettingsSection>
                 </SettingsMotionPanel>
@@ -885,6 +951,8 @@ function mergeSection(
         activeModelInputModalities: draft.activeModelInputModalities,
         providers: draft.providers,
       };
+    case "learning":
+      return { ...latest, learningLevel: draft.learningLevel };
     case "icons":
       return { ...latest, iconGeneration: draft.iconGeneration };
     case "integrations":
@@ -910,6 +978,8 @@ function applySavedSection(
         activeModelInputModalities: saved.activeModelInputModalities,
         providers: saved.providers,
       };
+    case "learning":
+      return { ...current, learningLevel: saved.learningLevel };
     case "icons":
       return { ...current, iconGeneration: saved.iconGeneration };
     case "integrations":

@@ -129,6 +129,10 @@ export const WebSearchSettings = z.object({
 });
 export type WebSearchSettings = z.infer<typeof WebSearchSettings>;
 
+export const LEARNING_LEVELS = ["beginner", "intermediate", "advanced"] as const;
+export const LearningLevel = z.enum(LEARNING_LEVELS);
+export type LearningLevel = z.infer<typeof LearningLevel>;
+
 export const LockdownSettings = z.object({
   enabled: z.boolean().default(false),
   pinHash: z.string().default(""),
@@ -156,6 +160,7 @@ export const FelixSettings = z.object({
     pinHash: "",
     pinSalt: "",
   }),
+  learningLevel: LearningLevel.default("beginner"),
   sandboxAllowNetwork: z.boolean().default(true),
   dataDir: z.string().nullable().default(null),
 });
@@ -181,6 +186,7 @@ export const DEFAULT_SETTINGS: FelixSettings = {
     pinHash: "",
     pinSalt: "",
   },
+  learningLevel: "beginner",
   sandboxAllowNetwork: true,
   dataDir: null,
 };

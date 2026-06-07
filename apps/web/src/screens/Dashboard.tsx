@@ -40,7 +40,7 @@ const PIN_LENGTH = 4;
 
 export function Dashboard() {
   const { apps, createApp, openApp, goSettings } = useStore();
-  const [activeTab, setActiveTab] = useState<DashboardTab>("apps");
+  const [activeTab, setActiveTab] = useState<DashboardTab>("build");
   const [prompt, setPrompt] = useState("");
   const [promptFiles, setPromptFiles] = useState<File[]>([]);
   const [creating, setCreating] = useState(false);

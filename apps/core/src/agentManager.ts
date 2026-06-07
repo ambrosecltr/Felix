@@ -10,7 +10,7 @@ import {
   type FelixSettings,
   type TokenUsage as TokenUsageData,
 } from "@felix/contracts";
-import { FELIX_SYSTEM_PROMPT, felixWorkspaceFiles } from "./agentPrompt.ts";
+import { felixSystemPrompt, felixWorkspaceFiles } from "./agentPrompt.ts";
 import type { AgentImageContent } from "./chatAttachmentImages.ts";
 import { providerEnv, writeProviderConfig } from "./providerConfig.ts";
 import { buildSeatbeltProfile, isSandboxAvailable, wrapWithSandbox } from "./sandbox.ts";
@@ -105,10 +105,14 @@ export class AgentManager {
     private readonly piExtensionPaths: readonly string[] = [],
   ) {}
 
-  private async ensureWorkspaceFiles(appDir: string, appName: string): Promise<string> {
+  private async ensureWorkspaceFiles(
+    appDir: string,
+    appName: string,
+    level: FelixSettings["learningLevel"],
+  ): Promise<string> {
     const piDir = path.join(appDir, ".pi");
     await fs.mkdir(piDir, { recursive: true });
-    for (const file of felixWorkspaceFiles(appName)) {
+    for (const file of felixWorkspaceFiles(appName, level)) {
       const filePath = path.join(appDir, file.path);
       if (file.overwrite === false && (await fileExists(filePath))) continue;
       await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -145,7 +149,7 @@ export class AgentManager {
     this.pendingToolDetails.delete(appId);
 
     const settings = await this.getSettings();
-    await this.ensureWorkspaceFiles(appDir, appName);
+    await this.ensureWorkspaceFiles(appDir, appName, settings.learningLevel);
 
     const agentDir = path.join(this.rootDir, "agent");
     const sessionDir = path.join(appDir, ".pi", "sessions");
@@ -205,7 +209,7 @@ export class AgentManager {
       }),
       PI_AGENT_DIR: agentDir,
       IMPECCABLE_NO_UPDATE_CHECK: "1",
-      FELIX_SYSTEM_PROMPT,
+      FELIX_SYSTEM_PROMPT: felixSystemPrompt(settings.learningLevel),
     };
     delete agentEnv.XAI_API_KEY;
 

@@ -27,6 +27,12 @@ describe("settings contract", () => {
       pinHash: "",
       pinSalt: "",
     });
+    expect(parsed.learningLevel).toBe("beginner");
+  });
+
+  test("keeps a valid learning level and rejects unknown ones", () => {
+    expect(FelixSettings.parse({ learningLevel: "advanced" }).learningLevel).toBe("advanced");
+    expect(() => FelixSettings.parse({ learningLevel: "expert" })).toThrow();
   });
 
   test("rejects unknown web search providers", () => {
