@@ -90,4 +90,63 @@ describe("provider config", () => {
 
     expect(activeModel?.input).toEqual(["text"]);
   });
+
+  test("does not downgrade OpenCode registry modalities when syncing extension credentials", async () => {
+    const agentDir = await fs.mkdtemp(path.join(os.tmpdir(), "felix-agent-"));
+    tempDirs.push(agentDir);
+    const homeDir = await useTempHome();
+    const registryFile = path.join(homeDir, ".cache", "opencode", "models.json");
+    await fs.mkdir(path.dirname(registryFile), { recursive: true });
+    await fs.writeFile(
+      registryFile,
+      JSON.stringify({
+        "opencode-go": {
+          models: {
+            "kimi-k2.6": {
+              name: "Kimi K2.6",
+              family: "kimi",
+              modalities: { input: ["text", "image", "video"], output: ["text"] },
+              limit: { context: 262_144, output: 65_536 },
+              cost: { input: 0.95, output: 4, cache_read: 0.16 },
+              reasoning: true,
+            },
+          },
+        },
+      }),
+      "utf8",
+    );
+    const settings: FelixSettings = {
+      ...DEFAULT_SETTINGS,
+      activeProvider: "oc-sdk-go",
+      activeModel: "kimi-k2.6",
+      activeModelInputModalities: null,
+      providers: [{ id: "oc-sdk-go", apiKey: "sk-oc-test" }],
+    };
+
+    await writeProviderConfig(agentDir, settings, { homeDir });
+
+    const parsed = JSON.parse(await fs.readFile(registryFile, "utf8")) as {
+      "opencode-go": {
+        models: Record<
+          string,
+          {
+            modalities?: { input?: string[]; output?: string[] };
+            limit?: { context?: number; output?: number };
+            reasoning?: boolean;
+          }
+        >;
+      };
+    };
+    const kimi = parsed["opencode-go"].models["kimi-k2.6"];
+    expect(kimi?.modalities?.input).toEqual(["text", "image", "video"]);
+    expect(kimi?.modalities?.output).toEqual(["text"]);
+    expect(kimi?.limit?.context).toBe(262_144);
+    expect(kimi?.reasoning).toBe(true);
+  });
 });
+
+async function useTempHome(): Promise<string> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "felix-home-"));
+  tempDirs.push(dir);
+  return dir;
+}

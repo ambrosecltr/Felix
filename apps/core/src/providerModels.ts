@@ -12,15 +12,18 @@ import {
 } from "@felix/contracts";
 
 const MODEL_LIST_TIMEOUT_MS = 10_000;
-const OPENCODE_REGISTRY_PATHS = [
-  path.join(os.homedir(), ".cache", "opencode", "models.json"),
-  path.join(os.homedir(), ".config", "opencode", "models.json"),
-] as const;
+
+type JsonRecord = Record<string, unknown>;
+
+interface ProviderModelListOptions {
+  homeDir?: string;
+}
 
 const OPENCODE_REGISTRY_PROVIDER_BY_ID: Partial<Record<ProviderId, string>> = {
   "oc-sdk-go": "opencode-go",
   "oc-sdk-zen": "opencode",
 };
+const OPENCODE_REGISTRY_PROVIDER_IDS = new Set(Object.values(OPENCODE_REGISTRY_PROVIDER_BY_ID));
 
 const NVIDIA_SKIP_MODEL_IDS = new Set([
   "baai/bge-m3",
@@ -83,6 +86,7 @@ const NON_CHAT_ID_PARTS = [
 
 export async function listProviderModels(
   request: ProviderModelsRequest,
+  options: ProviderModelListOptions = {},
 ): Promise<ProviderModelsResponse> {
   const parsedRequest = ProviderModelsRequest.parse(request);
   const provider = PROVIDER_CATALOG_BY_ID[parsedRequest.providerId];
@@ -97,19 +101,34 @@ export async function listProviderModels(
     };
   }
 
+  if (provider.modelSource === "opencode-registry") {
+    try {
+      const localModels = await readOpenCodeRegistryModels(provider.id, options);
+      if (localModels.length > 0) {
+        return { providerId: provider.id, models: localModels, source: "local", error: null };
+      }
+    } catch {
+      // Fall through to the live provider endpoint and normal recovery path.
+    }
+  }
+
   try {
     const models = await fetchProviderModels(provider.id, credential);
     if (models.length > 0) {
       return { providerId: provider.id, models, source: "provider", error: null };
     }
 
-    return modelRecoveryResponse(provider, "The provider returned no usable chat models.");
+    return modelRecoveryResponse(
+      provider,
+      "The provider returned no usable chat models.",
+      options,
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (error instanceof ProviderAuthError) {
       return { providerId: provider.id, models: [], source: "none", error: message };
     }
-    return modelRecoveryResponse(provider, message);
+    return modelRecoveryResponse(provider, message, options);
   }
 }
 
@@ -150,12 +169,13 @@ async function fetchProviderModels(
 async function modelRecoveryResponse(
   provider: ProviderCatalogEntry,
   error: string,
+  options: ProviderModelListOptions = {},
 ): Promise<ProviderModelsResponse> {
   let recoveryError = error;
 
   if (provider.modelSource === "opencode-registry") {
     try {
-      const localModels = await readOpenCodeRegistryModels(provider.id);
+      const localModels = await readOpenCodeRegistryModels(provider.id, options);
       if (localModels.length > 0) {
         return { providerId: provider.id, models: localModels, source: "local", error };
       }
@@ -188,11 +208,14 @@ function credentialFor(
   return accessToken.length > 0 ? accessToken : null;
 }
 
-async function readOpenCodeRegistryModels(providerId: ProviderId): Promise<ProviderModel[]> {
+async function readOpenCodeRegistryModels(
+  providerId: ProviderId,
+  options: ProviderModelListOptions,
+): Promise<ProviderModel[]> {
   const registryProviderId = OPENCODE_REGISTRY_PROVIDER_BY_ID[providerId];
   if (!registryProviderId) return [];
 
-  const registryPath = await firstExistingFile(OPENCODE_REGISTRY_PATHS);
+  const registryPath = await firstExistingFile(openCodeRegistryPaths(options));
   if (!registryPath) return [];
 
   const raw = await fs.readFile(registryPath, "utf8");
@@ -202,21 +225,76 @@ async function readOpenCodeRegistryModels(providerId: ProviderId): Promise<Provi
   const registryProvider = readRecordProperty(parsed, registryProviderId);
   const modelMap = registryProvider ? readRecordProperty(registryProvider, "models") : null;
   if (!modelMap) return [];
+  const registryInputs = registryInputModalitiesByModelId(parsed, registryProviderId);
 
   return dedupeModels(
     Object.entries(modelMap)
-      .map(([modelId, entry]) => normalizeOpenCodeRegistryModel(modelId, entry))
+      .map(([modelId, entry]) =>
+        normalizeOpenCodeRegistryModel(modelId, entry, registryInputs[modelId]),
+      )
       .filter((model): model is ProviderModel => model !== null),
   );
 }
 
-function normalizeOpenCodeRegistryModel(modelId: string, entry: unknown): ProviderModel | null {
+function openCodeRegistryPaths(options: ProviderModelListOptions): string[] {
+  const homeDir = options.homeDir ?? os.homedir();
+  return [
+    path.join(homeDir, ".cache", "opencode", "models.json"),
+    path.join(homeDir, ".config", "opencode", "models.json"),
+  ];
+}
+
+function registryInputModalitiesByModelId(
+  registry: JsonRecord,
+  providerId: string,
+): Partial<Record<string, ProviderInputModality[]>> {
+  const inputsByModelId: Partial<Record<string, ProviderInputModality[]>> = {};
+  for (const [candidateProviderId, candidateProvider] of Object.entries(registry)) {
+    if (
+      candidateProviderId === providerId ||
+      !OPENCODE_REGISTRY_PROVIDER_IDS.has(candidateProviderId) ||
+      !isRecord(candidateProvider)
+    ) {
+      continue;
+    }
+    const candidateModels = readRecordProperty(candidateProvider, "models");
+    if (!candidateModels) continue;
+
+    for (const [modelId, candidateModel] of Object.entries(candidateModels)) {
+      if (!isRecord(candidateModel)) continue;
+      const inputModalities = readModalitiesInput(candidateModel);
+      if (!inputModalities) continue;
+      const mergedInputModalities = mergeInputModalities(inputsByModelId[modelId], inputModalities);
+      if (mergedInputModalities) inputsByModelId[modelId] = mergedInputModalities;
+    }
+  }
+  return inputsByModelId;
+}
+
+function normalizeOpenCodeRegistryModel(
+  modelId: string,
+  entry: unknown,
+  registryInputModalities: ProviderInputModality[] | undefined,
+): ProviderModel | null {
   if (!isRecord(entry)) return null;
-  const inputModalities = readModalitiesInput(entry);
+  const inputModalities = mergeInputModalities(readModalitiesInput(entry), registryInputModalities);
   return withOptionalInputModalities({
     id: modelId,
     name: readStringProperty(entry, "name") ?? makeDisplayName(modelId),
   }, inputModalities);
+}
+
+function mergeInputModalities(
+  left: ProviderInputModality[] | null | undefined,
+  right: ProviderInputModality[] | null | undefined,
+): ProviderInputModality[] | null {
+  const modalities: ProviderInputModality[] = [];
+  for (const values of [left, right]) {
+    for (const value of values ?? []) {
+      if (!modalities.includes(value)) modalities.push(value);
+    }
+  }
+  return modalities.length > 0 ? modalities : null;
 }
 
 async function firstExistingFile(paths: readonly string[]): Promise<string | null> {

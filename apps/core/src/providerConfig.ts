@@ -45,9 +45,10 @@ interface OpenCodeCliCredential {
 
 type JsonRecord = Record<string, unknown>;
 
-const OPENCODE_AUTH_FILE = path.join(os.homedir(), ".local", "share", "opencode", "auth.json");
-const PI_HOME_AUTH_FILE = path.join(os.homedir(), ".pi", "agent", "auth.json");
-const OPENCODE_REGISTRY_FILE = path.join(os.homedir(), ".cache", "opencode", "models.json");
+interface ProviderConfigWriteOptions {
+  homeDir?: string;
+}
+
 const OPENCODE_PROVIDER_BY_AUTH_KEY: Record<string, ProviderId> = {
   "opencode-go": "oc-sdk-go",
   opencode: "oc-sdk-zen",
@@ -62,6 +63,7 @@ const DEFAULT_MODEL_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 export async function writeProviderConfig(
   agentDir: string,
   settings: FelixSettings,
+  options: ProviderConfigWriteOptions = {},
 ): Promise<void> {
   await fs.mkdir(agentDir, { recursive: true });
 
@@ -110,8 +112,8 @@ export async function writeProviderConfig(
     "utf8",
   );
 
-  await writeOpenCodeAuth(opencodeCredentials);
-  await writeOpenCodeRegistry(settings, opencodeCredentials);
+  await writeOpenCodeAuth(opencodeCredentials, options);
+  await writeOpenCodeRegistry(settings, opencodeCredentials, options);
 }
 
 function storedActiveModel(settings: FelixSettings): ProviderModel | null {
@@ -137,13 +139,16 @@ export function providerEnv(settings: FelixSettings): Record<string, string> {
   return env;
 }
 
-async function writeOpenCodeAuth(credentials: Record<string, string>): Promise<void> {
+async function writeOpenCodeAuth(
+  credentials: Record<string, string>,
+  options: ProviderConfigWriteOptions,
+): Promise<void> {
   const entries = Object.entries(credentials);
   if (entries.length === 0) return;
 
   const [openCodeAuth, piAuth] = await Promise.all([
-    readJsonObject(OPENCODE_AUTH_FILE, "Auth file"),
-    readJsonObject(PI_HOME_AUTH_FILE, "Auth file"),
+    readJsonObject(openCodeAuthFile(options), "Auth file"),
+    readJsonObject(piHomeAuthFile(options), "Auth file"),
   ]);
 
   for (const [authKey, apiKey] of entries) {
@@ -152,19 +157,20 @@ async function writeOpenCodeAuth(credentials: Record<string, string>): Promise<v
   }
 
   await Promise.all([
-    writePrivateJsonFile(OPENCODE_AUTH_FILE, openCodeAuth),
-    writePrivateJsonFile(PI_HOME_AUTH_FILE, piAuth),
+    writePrivateJsonFile(openCodeAuthFile(options), openCodeAuth),
+    writePrivateJsonFile(piHomeAuthFile(options), piAuth),
   ]);
 }
 
 async function writeOpenCodeRegistry(
   settings: FelixSettings,
   credentials: Record<string, string>,
+  options: ProviderConfigWriteOptions,
 ): Promise<void> {
   const authKeys = Object.keys(credentials);
   if (authKeys.length === 0) return;
 
-  const registry = await readJsonObject(OPENCODE_REGISTRY_FILE, "OpenCode model registry");
+  const registry = await readJsonObject(openCodeRegistryFile(options), "OpenCode model registry");
 
   for (const authKey of authKeys) {
     const providerId = OPENCODE_PROVIDER_BY_AUTH_KEY[authKey];
@@ -175,14 +181,27 @@ async function writeOpenCodeRegistry(
 
     registry[authKey] = {
       ...existingProvider,
-      models: {
-        ...existingModels,
-        ...modelsForRegistry(settings, providerId),
-      },
+      models: mergeRegistryModels(existingModels, modelsForRegistry(settings, providerId)),
     };
   }
 
-  await writePrivateJsonFile(OPENCODE_REGISTRY_FILE, registry);
+  await writePrivateJsonFile(openCodeRegistryFile(options), registry);
+}
+
+function openCodeAuthFile(options: ProviderConfigWriteOptions): string {
+  return path.join(homeDir(options), ".local", "share", "opencode", "auth.json");
+}
+
+function piHomeAuthFile(options: ProviderConfigWriteOptions): string {
+  return path.join(homeDir(options), ".pi", "agent", "auth.json");
+}
+
+function openCodeRegistryFile(options: ProviderConfigWriteOptions): string {
+  return path.join(homeDir(options), ".cache", "opencode", "models.json");
+}
+
+function homeDir(options: ProviderConfigWriteOptions): string {
+  return options.homeDir ?? os.homedir();
 }
 
 function modelsForPiConfig(
@@ -233,6 +252,55 @@ function modelsForRegistry(settings: FelixSettings, providerId: ProviderId): Jso
       },
     ]),
   );
+}
+
+function mergeRegistryModels(existingModels: JsonRecord, generatedModels: JsonRecord): JsonRecord {
+  const merged: JsonRecord = { ...existingModels };
+  for (const [modelId, generatedModel] of Object.entries(generatedModels)) {
+    const existingModel = existingModels[modelId];
+    merged[modelId] =
+      isRecord(existingModel) && isRecord(generatedModel)
+        ? mergeRegistryModel(existingModel, generatedModel)
+        : generatedModel;
+  }
+  return merged;
+}
+
+function mergeRegistryModel(existingModel: JsonRecord, generatedModel: JsonRecord): JsonRecord {
+  return {
+    ...generatedModel,
+    ...existingModel,
+    modalities: mergeRegistryModalities(
+      isRecord(existingModel.modalities) ? existingModel.modalities : null,
+      isRecord(generatedModel.modalities) ? generatedModel.modalities : null,
+    ),
+  };
+}
+
+function mergeRegistryModalities(
+  existingModalities: JsonRecord | null,
+  generatedModalities: JsonRecord | null,
+): JsonRecord | undefined {
+  if (!existingModalities) return generatedModalities ?? undefined;
+  if (!generatedModalities) return existingModalities;
+  return {
+    ...generatedModalities,
+    ...existingModalities,
+    input: unionStringArrays(generatedModalities.input, existingModalities.input),
+  };
+}
+
+function unionStringArrays(left: unknown, right: unknown): string[] | unknown {
+  if (!Array.isArray(left) && !Array.isArray(right)) return right ?? left;
+  const values = new Set<string>();
+  const candidates = [
+    ...(Array.isArray(left) ? left : []),
+    ...(Array.isArray(right) ? right : []),
+  ];
+  for (const value of candidates) {
+    if (typeof value === "string") values.add(value);
+  }
+  return values.size > 0 ? [...values] : right ?? left;
 }
 
 function activePiModelForSettings(
