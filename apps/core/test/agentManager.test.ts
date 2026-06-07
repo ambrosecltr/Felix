@@ -100,6 +100,7 @@ describe("agent prompt commands", () => {
     ).toBe(
       [
         "/Applications/Felix.app/Contents/Resources/node/bin",
+        "/Users/alex/Library/Application Support/Felix/apps/snake/.felix/bin",
         "/Applications/Felix.app/Contents/Resources/bun/bin",
         "/Users/alex/Library/Application Support/Felix/apps/snake/node_modules/.bin",
         "/usr/bin",

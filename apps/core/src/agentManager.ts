@@ -19,6 +19,11 @@ import {
   webSearchEnv,
   writeWebSearchConfig,
 } from "./webSearchConfig.ts";
+import {
+  miniAppBunWrapperDir,
+  miniAppBunWrapperPath,
+  miniAppBunWrapperScript,
+} from "./packageInstallPolicy.ts";
 
 type EventSink = (appId: string, event: AgentEvent) => void;
 const MAX_JSONL_BUFFER_CHARS = 1024 * 1024;
@@ -109,7 +114,19 @@ export class AgentManager {
       await fs.mkdir(path.dirname(filePath), { recursive: true });
       await fs.writeFile(filePath, file.content, "utf8");
     }
+    await this.writeBunWrapper(appDir);
     return piDir;
+  }
+
+  private async writeBunWrapper(appDir: string): Promise<void> {
+    const wrapperDir = miniAppBunWrapperDir(appDir);
+    const wrapperPath = miniAppBunWrapperPath(appDir);
+    await fs.mkdir(wrapperDir, { recursive: true });
+    await fs.writeFile(wrapperPath, miniAppBunWrapperScript(this.bunBin), {
+      encoding: "utf8",
+      mode: 0o755,
+    });
+    await fs.chmod(wrapperPath, 0o755);
   }
 
   private async writeSandboxProfile(
@@ -432,6 +449,7 @@ export function buildAgentPath(options: {
 }): string {
   const entries = [
     path.dirname(options.nodeBin),
+    miniAppBunWrapperDir(options.appDir),
     path.dirname(options.bunBin),
     path.join(options.appDir, "node_modules", ".bin"),
     ...(options.inheritedPath?.split(path.delimiter) ?? []),

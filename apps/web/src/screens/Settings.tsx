@@ -805,9 +805,6 @@ function SettingsTabButton({
         />
       )}
       <span className="relative block truncate text-[13px] font-medium">{tab.label}</span>
-      <span className="relative block truncate text-xs text-muted-foreground">
-        {tab.description}
-      </span>
     </button>
   );
 }

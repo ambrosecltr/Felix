@@ -52,6 +52,7 @@ import {
   verifyLockdownPin,
 } from "./lockdown.ts";
 import { normalizeWebSearchSettings } from "./webSearchConfig.ts";
+import { miniAppBunfig, miniAppBunInstallArgs } from "./packageInstallPolicy.ts";
 
 export interface MiniAppManagerOptions {
   /** Directory containing bundled resources (e.g. a standalone Node runtime). */
@@ -207,6 +208,7 @@ export class MiniAppManager {
         await fs.writeFile(filePath, file.content, "utf8");
       }
       await this.writeManifest(manifest);
+      await this.writeInstallPolicy(dir);
 
       await git.initRepo(dir);
       await git.checkpoint(dir, "First version of your app", "system");
@@ -228,6 +230,7 @@ export class MiniAppManager {
   async open(appId: string): Promise<MiniAppSummary> {
     const manifest = await this.readManifest(appId);
     if (!manifest) throw new Error(`Mini app not found: ${appId}`);
+    await this.writeInstallPolicy(this.appDir(appId));
     if (!this.vite.isRunning(appId)) {
       this.setStatus(appId, "starting");
       manifest.devPort = await this.startVite(appId, this.appDir(appId));
@@ -686,7 +689,7 @@ export class MiniAppManager {
 
   private async installDeps(dir: string): Promise<void> {
     await new Promise<void>((resolve, reject) => {
-      const child: ChildProcess = spawn(this.bunBin, ["install"], {
+      const child: ChildProcess = spawn(this.bunBin, miniAppBunInstallArgs(), {
         cwd: dir,
         stdio: "ignore",
         env: { ...process.env },
@@ -714,6 +717,10 @@ export class MiniAppManager {
       });
       child.once("error", (err) => finish(() => reject(err)));
     });
+  }
+
+  private async writeInstallPolicy(dir: string): Promise<void> {
+    await fs.writeFile(path.join(dir, "bunfig.toml"), miniAppBunfig(), "utf8");
   }
 
   private async startVite(appId: string, dir: string): Promise<number> {
