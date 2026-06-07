@@ -311,6 +311,11 @@ assertNodeSatisfiesEngine(
   "Bundled PI agent",
 );
 commandSucceeds(nodeBin, [piBin, "--version"], "Bundled PI CLI check");
+requirePath(
+  join(agentDir, "node_modules", "@juicesharp", "rpiv-web-tools", "package.json"),
+  "PI web tools extension",
+  { file: true },
+);
 requirePath(join(agentDir, "node_modules", "pi-nvidia-nim", "package.json"), "PI NVIDIA extension", {
   file: true,
 });

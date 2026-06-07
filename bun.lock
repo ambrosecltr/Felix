@@ -20,6 +20,7 @@
         "@felix/contracts": "*",
         "@felix/mini-app-template": "*",
         "@felix/shared": "*",
+        "@juicesharp/rpiv-web-tools": "^1.18.2",
         "pi-nvidia-nim": "^1.1.22",
         "pi-opencode-bridge": "^0.2.1",
       },
@@ -376,6 +377,10 @@
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
+
+    "@juicesharp/rpiv-config": ["@juicesharp/rpiv-config@1.18.2", "", { "peerDependencies": { "typebox": "*" } }, "sha512-2pZRceYI/2wXF7IE1f56NCavCWj59HSZnmt0kQ1Cu+p/TI665gkIfny6+QqUFYcaPhV8oZoY4sr32GlqO/xWOw=="],
+
+    "@juicesharp/rpiv-web-tools": ["@juicesharp/rpiv-web-tools@1.18.2", "", { "dependencies": { "@juicesharp/rpiv-config": "^1.18.2" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" } }, "sha512-Q8Hgpi4lUhROpHH2zTWHywNyMczbxuym8P2+M50vwcubt6wnKLIT2/vbT2unDRBUAk7xBG7toRG3HjXHV1dwiA=="],
 
     "@malept/cross-spawn-promise": ["@malept/cross-spawn-promise@2.0.0", "", { "dependencies": { "cross-spawn": "^7.0.1" } }, "sha512-1DpKU0Z5ThltBwjNySMC14g0CkbyhCaz9FkhxqNsZI6uAPJXFS8cMXlBKo26FJ8ZuW6S9GCMcR9IO5k2X5/9Fg=="],
 

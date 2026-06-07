@@ -40,6 +40,27 @@ export const MiniAppIconRequest = z.object({
 });
 export type MiniAppIconRequest = z.infer<typeof MiniAppIconRequest>;
 
+export const SettingsLockdownSetRequest = z.object({
+  enabled: z.boolean(),
+  pin: z.string().optional(),
+});
+export type SettingsLockdownSetRequest = z.infer<typeof SettingsLockdownSetRequest>;
+
+export const SettingsLockdownStatus = z.object({
+  enabled: z.boolean(),
+});
+export type SettingsLockdownStatus = z.infer<typeof SettingsLockdownStatus>;
+
+export const SettingsLockdownVerifyRequest = z.object({
+  pin: z.string(),
+});
+export type SettingsLockdownVerifyRequest = z.infer<typeof SettingsLockdownVerifyRequest>;
+
+export const SettingsLockdownVerifyResponse = z.object({
+  ok: z.boolean(),
+});
+export type SettingsLockdownVerifyResponse = z.infer<typeof SettingsLockdownVerifyResponse>;
+
 export const UpdateDownloadProgress = z.object({
   percent: z.number().min(0).max(100),
   bytesPerSecond: z.number().nonnegative(),
@@ -87,6 +108,12 @@ export interface FelixApi {
   "checkpoint.restore": [RestoreCheckpointRequest, void];
   "settings.get": [void, FelixSettings];
   "settings.set": [FelixSettings, FelixSettings];
+  "settings.lockdown.status": [void, SettingsLockdownStatus];
+  "settings.lockdown.set": [SettingsLockdownSetRequest, FelixSettings];
+  "settings.lockdown.verify": [
+    SettingsLockdownVerifyRequest,
+    SettingsLockdownVerifyResponse,
+  ];
   "profile.get": [void, ProfileOverview];
   "profile.setName": [SetProfileNameRequest, ProfileOverview];
   "provider.models": [ProviderModelsRequest, ProviderModelsResponse];

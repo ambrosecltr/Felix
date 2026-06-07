@@ -18,6 +18,8 @@ import {
   type ProviderInputModality,
   type ProviderModelsRequest,
   type PushEvent,
+  type SettingsLockdownSetRequest,
+  type SettingsLockdownVerifyRequest,
   type SetProfileNameRequest,
 } from "@felix/contracts";
 import * as git from "@felix/shared/git";
@@ -44,6 +46,12 @@ import { ProfileStore } from "./profileStore.ts";
 import { resolvePiPackageDir } from "./resolvePi.ts";
 import { SettingsStore } from "./settingsStore.ts";
 import { ViteManager } from "./viteManager.ts";
+import {
+  hashLockdownPin,
+  hasConfiguredLockdownPin,
+  verifyLockdownPin,
+} from "./lockdown.ts";
+import { normalizeWebSearchSettings } from "./webSearchConfig.ts";
 
 export interface MiniAppManagerOptions {
   /** Directory containing bundled resources (e.g. a standalone Node runtime). */
@@ -97,7 +105,11 @@ export class MiniAppManager {
         : undefined,
     });
     this.vite = new ViteManager(nodeBin);
-    const piExtensionPaths = ["pi-nvidia-nim", "pi-opencode-bridge"]
+    const piExtensionPaths = [
+      "@juicesharp/rpiv-web-tools",
+      "pi-nvidia-nim",
+      "pi-opencode-bridge",
+    ]
       .map((packageName) => resolvePiPackageDir(packageName, options.resourcesDir))
       .filter((extensionPath): extensionPath is string => extensionPath !== null);
     this.agent = new AgentManager(
@@ -586,11 +598,12 @@ export class MiniAppManager {
 
   // --- settings ---
 
-  getSettings() {
-    return this.settings.get();
+  async getSettings() {
+    return redactLockdownSettings(await this.settings.get());
   }
 
   async setSettings(next: Parameters<SettingsStore["set"]>[0]) {
+    const current = await this.settings.get();
     const parsed = FelixSettings.parse(next);
     const normalized = {
       ...parsed,
@@ -598,9 +611,54 @@ export class MiniAppManager {
         ...parsed.iconGeneration,
         xaiApiKey: parsed.iconGeneration.xaiApiKey.trim(),
       },
+      webSearch: normalizeWebSearchSettings(parsed.webSearch),
+      lockdown: current.lockdown,
     };
     await checkIconGenerationSetup(normalized);
-    return this.settings.set(normalized);
+    return redactLockdownSettings(await this.settings.set(normalized));
+  }
+
+  async getLockdownStatus() {
+    const settings = await this.settings.get();
+    return { enabled: hasConfiguredLockdownPin(settings.lockdown) };
+  }
+
+  async setLockdown(request: SettingsLockdownSetRequest) {
+    const current = await this.settings.get();
+    if (!request.enabled) {
+      return redactLockdownSettings(
+        await this.settings.set({
+          ...current,
+          lockdown: { enabled: false, pinHash: "", pinSalt: "" },
+        }),
+      );
+    }
+
+    const pin = request.pin?.trim();
+    if (pin) {
+      return redactLockdownSettings(
+        await this.settings.set({
+          ...current,
+          lockdown: await hashLockdownPin(pin),
+        }),
+      );
+    }
+
+    if (hasConfiguredLockdownPin(current.lockdown)) {
+      return redactLockdownSettings(
+        await this.settings.set({
+          ...current,
+          lockdown: { ...current.lockdown, enabled: true },
+        }),
+      );
+    }
+
+    throw new Error("Enter a 4 digit PIN.");
+  }
+
+  async verifyLockdown(request: SettingsLockdownVerifyRequest) {
+    const settings = await this.settings.get();
+    return { ok: await verifyLockdownPin(request.pin.trim(), settings.lockdown) };
   }
 
   async getProfileOverview() {
@@ -867,6 +925,17 @@ function safeAppRelativePath(appDir: string, relativePath: string): string {
     throw new Error("Mini app icon path is outside the app directory");
   }
   return resolved;
+}
+
+function redactLockdownSettings(settings: FelixSettings): FelixSettings {
+  return {
+    ...settings,
+    lockdown: {
+      ...settings.lockdown,
+      pinHash: "",
+      pinSalt: "",
+    },
+  };
 }
 
 export function promptWithAttachments(

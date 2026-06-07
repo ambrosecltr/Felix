@@ -1,11 +1,27 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import type { MiniAppSummary } from "@felix/contracts";
+import { felix } from "../bridge.ts";
 import { useStore } from "../store.tsx";
 import { filesToChatAttachments } from "../lib/message-attachments.ts";
 import { type IconComponent, useIcon } from "../lib/icon-context.tsx";
 import { cn } from "../lib/utils.ts";
 import { Button } from "../components/ui/Button.tsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog.tsx";
 import { AppChromeHeader } from "../components/AppChromeHeader.tsx";
 import { CreatingOverlay } from "../components/CreatingOverlay.tsx";
 import { MiniAppIconView } from "../components/MiniAppIconView.tsx";
@@ -20,6 +36,7 @@ const DASHBOARD_TABS: Array<{ value: DashboardTab; label: string }> = [
   { value: "build", label: "Build with Felix" },
   { value: "profile", label: "My Felix" },
 ];
+const PIN_LENGTH = 4;
 
 export function Dashboard() {
   const { apps, createApp, openApp, goSettings } = useStore();
@@ -28,6 +45,11 @@ export function Dashboard() {
   const [promptFiles, setPromptFiles] = useState<File[]>([]);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [settingsPinOpen, setSettingsPinOpen] = useState(false);
+  const [settingsPin, setSettingsPin] = useState("");
+  const [settingsPinError, setSettingsPinError] = useState<string | null>(null);
+  const [checkingSettingsAccess, setCheckingSettingsAccess] = useState(false);
+  const [verifyingSettingsPin, setVerifyingSettingsPin] = useState(false);
   const shouldReduceMotion = useReducedMotion();
   const PaperclipIcon = useIcon("paperclip");
   const SettingsIcon = useIcon("settings");
@@ -53,6 +75,59 @@ export function Dashboard() {
     }
   };
 
+  const openSettings = async () => {
+    if (checkingSettingsAccess) return;
+    setCheckingSettingsAccess(true);
+    setSettingsPinError(null);
+    try {
+      const status = await felix.invoke("settings.lockdown.status", undefined);
+      if (!status.enabled) {
+        goSettings();
+        return;
+      }
+      setSettingsPin("");
+      setSettingsPinOpen(true);
+    } catch (err) {
+      if (isMissingLockdownStatusHandlerError(err)) {
+        console.warn("[felix] Lockdown status handler is not registered yet:", err);
+        goSettings();
+        return;
+      }
+      setSettingsPinError(err instanceof Error ? err.message : "Could not check settings access.");
+      setSettingsPinOpen(true);
+    } finally {
+      setCheckingSettingsAccess(false);
+    }
+  };
+
+  const verifySettingsPin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (settingsPin.length !== 4 || verifyingSettingsPin) return;
+    setVerifyingSettingsPin(true);
+    setSettingsPinError(null);
+    try {
+      const result = await felix.invoke("settings.lockdown.verify", { pin: settingsPin });
+      if (!result.ok) {
+        setSettingsPinError("Incorrect PIN.");
+        return;
+      }
+      setSettingsPinOpen(false);
+      setSettingsPin("");
+      goSettings();
+    } catch (err) {
+      setSettingsPinError(err instanceof Error ? err.message : "Could not verify PIN.");
+    } finally {
+      setVerifyingSettingsPin(false);
+    }
+  };
+
+  const closeSettingsPin = (open: boolean) => {
+    setSettingsPinOpen(open);
+    if (open) return;
+    setSettingsPin("");
+    setSettingsPinError(null);
+  };
+
   return (
     <div className="flex h-full flex-col bg-background">
       <AppChromeHeader
@@ -69,7 +144,8 @@ export function Dashboard() {
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={goSettings}
+            onClick={() => void openSettings()}
+            loading={checkingSettingsAccess}
             title="Settings"
             aria-label="Settings"
           >
@@ -106,7 +182,128 @@ export function Dashboard() {
       </main>
 
       {creating && <CreatingOverlay />}
+      <Dialog open={settingsPinOpen} onOpenChange={closeSettingsPin} modal>
+        <DialogContent size="sm">
+          <form onSubmit={verifySettingsPin} className="flex flex-col gap-5">
+            <DialogHeader>
+              <DialogTitle>Lockdown enabled</DialogTitle>
+              <DialogDescription>Enter your lockdown pin to continue.</DialogDescription>
+            </DialogHeader>
+            <PinCodeInput
+              value={settingsPin}
+              error={settingsPinError}
+              onChange={(value) => {
+                setSettingsPin(value);
+                setSettingsPinError(null);
+              }}
+            />
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="tertiary"
+                size="sm"
+                onClick={() => closeSettingsPin(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                loading={verifyingSettingsPin}
+                disabled={settingsPin.length !== 4}
+              >
+                Unlock
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+function PinCodeInput({
+  value,
+  error,
+  onChange,
+}: {
+  value: string;
+  error: string | null;
+  onChange: (value: string) => void;
+}) {
+  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const digits = Array.from({ length: PIN_LENGTH }, (_, index) => value[index] ?? "");
+
+  const focusInput = (index: number) => {
+    inputRefs.current[Math.min(Math.max(index, 0), PIN_LENGTH - 1)]?.focus();
+  };
+
+  const setDigit = (index: number, digit: string) => {
+    const nextDigits = [...digits];
+    nextDigits[index] = digit;
+    onChange(nextDigits.join("").slice(0, PIN_LENGTH));
+    if (digit) focusInput(index + 1);
+  };
+
+  const setPastedPin = (text: string) => {
+    const nextValue = sanitizePin(text);
+    onChange(nextValue);
+    focusInput(Math.min(nextValue.length, PIN_LENGTH - 1));
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-center gap-2">
+        {digits.map((digit, index) => (
+          <input
+            key={index}
+            ref={(node) => {
+              inputRefs.current[index] = node;
+            }}
+            type="password"
+            inputMode="numeric"
+            autoComplete={index === 0 ? "one-time-code" : "off"}
+            aria-label={`PIN digit ${index + 1}`}
+            aria-invalid={Boolean(error) || undefined}
+            value={digit}
+            maxLength={1}
+            onChange={(event) => {
+              const nextDigit = sanitizePin(event.target.value).slice(-1);
+              setDigit(index, nextDigit);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Backspace" && !digits[index]) focusInput(index - 1);
+              if (event.key === "ArrowLeft") focusInput(index - 1);
+              if (event.key === "ArrowRight") focusInput(index + 1);
+            }}
+            onPaste={(event: ClipboardEvent<HTMLInputElement>) => {
+              event.preventDefault();
+              setPastedPin(event.clipboardData.getData("text"));
+            }}
+            className={cn(
+              "h-12 w-11 rounded-xl border bg-transparent text-center text-base text-foreground outline-none transition-colors duration-80 placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-[#6B97FF]",
+              error ? "border-destructive/60" : "border-border hover:bg-hover focus:bg-card",
+            )}
+          />
+        ))}
+      </div>
+      {error && (
+        <p className="text-center text-[12px] font-medium text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function sanitizePin(value: string): string {
+  return value.replace(/\D/g, "").slice(0, PIN_LENGTH);
+}
+
+function isMissingLockdownStatusHandlerError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.includes("No handler registered for 'settings.lockdown.status'")
   );
 }
 

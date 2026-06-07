@@ -1,6 +1,12 @@
 import { ipcMain } from "electron";
 import type { MiniAppManager } from "@felix/core";
-import { MiniAppIconRequest, SendChatRequest, SetProfileNameRequest } from "@felix/contracts";
+import {
+  MiniAppIconRequest,
+  SendChatRequest,
+  SetProfileNameRequest,
+  SettingsLockdownSetRequest,
+  SettingsLockdownVerifyRequest,
+} from "@felix/contracts";
 import type { ExtensionUiResponse, FelixApiChannel } from "@felix/contracts";
 import type { MiniAppView, ViewBounds } from "./miniAppView.ts";
 import type { UpdateController } from "./updater.ts";
@@ -46,6 +52,13 @@ export function registerIpc(
 
   handle("settings.get", () => manager.getSettings());
   handle("settings.set", (arg) => manager.setSettings(arg as never));
+  handle("settings.lockdown.status", () => manager.getLockdownStatus());
+  handle("settings.lockdown.set", (arg) =>
+    manager.setLockdown(SettingsLockdownSetRequest.parse(arg)),
+  );
+  handle("settings.lockdown.verify", (arg) =>
+    manager.verifyLockdown(SettingsLockdownVerifyRequest.parse(arg)),
+  );
   handle("profile.get", () => manager.getProfileOverview());
   handle("profile.setName", (arg) => manager.setProfileName(SetProfileNameRequest.parse(arg)));
   handle("provider.models", (arg) => manager.listProviderModels(arg as never));

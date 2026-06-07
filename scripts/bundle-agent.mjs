@@ -26,6 +26,8 @@ const bundledNodeBin = path.join(
 );
 
 const PI_PKG = "@earendil-works/pi-coding-agent";
+const WEB_TOOLS_PKG = "@juicesharp/rpiv-web-tools";
+const WEB_TOOLS_VERSION = "^1.18.2";
 const NVIDIA_NIM_PKG = "pi-nvidia-nim";
 const NVIDIA_NIM_VERSION = "^1.1.22";
 const OPENCODE_BRIDGE_PKG = "pi-opencode-bridge";
@@ -83,6 +85,7 @@ async function main() {
         private: true,
         dependencies: {
           [PI_PKG]: version ?? "*",
+          [WEB_TOOLS_PKG]: WEB_TOOLS_VERSION,
           [NVIDIA_NIM_PKG]: NVIDIA_NIM_VERSION,
           [OPENCODE_BRIDGE_PKG]: OPENCODE_BRIDGE_VERSION,
         },
@@ -96,7 +99,7 @@ async function main() {
   // Use a real npm to get a flat, copyable node_modules (no workspace symlinks).
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   console.log(
-    `Installing ${spec}, ${NVIDIA_NIM_PKG}@${NVIDIA_NIM_VERSION}, and ${OPENCODE_BRIDGE_PKG}@${OPENCODE_BRIDGE_VERSION} into ${agentDir}`,
+    `Installing ${spec}, ${WEB_TOOLS_PKG}@${WEB_TOOLS_VERSION}, ${NVIDIA_NIM_PKG}@${NVIDIA_NIM_VERSION}, and ${OPENCODE_BRIDGE_PKG}@${OPENCODE_BRIDGE_VERSION} into ${agentDir}`,
   );
   execFileSync(npm, ["install", "--omit=dev", "--no-audit", "--no-fund"], {
     cwd: agentDir,

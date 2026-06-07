@@ -28,6 +28,7 @@ const Accordion = forwardRef<HTMLDivElement, AccordionProps>(
       defaultValue,
       value,
       onValueChange,
+      collapsible: _collapsible,
       className,
       ...props
     },

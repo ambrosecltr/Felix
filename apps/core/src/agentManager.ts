@@ -14,6 +14,11 @@ import { FELIX_SYSTEM_PROMPT, felixWorkspaceFiles } from "./agentPrompt.ts";
 import type { AgentImageContent } from "./chatAttachmentImages.ts";
 import { providerEnv, writeProviderConfig } from "./providerConfig.ts";
 import { buildSeatbeltProfile, isSandboxAvailable, wrapWithSandbox } from "./sandbox.ts";
+import {
+  isWebSearchExtensionPath,
+  webSearchEnv,
+  writeWebSearchConfig,
+} from "./webSearchConfig.ts";
 
 type EventSink = (appId: string, event: AgentEvent) => void;
 const MAX_JSONL_BUFFER_CHARS = 1024 * 1024;
@@ -130,6 +135,7 @@ export class AgentManager {
     await fs.mkdir(agentDir, { recursive: true });
     await fs.mkdir(sessionDir, { recursive: true });
     await writeProviderConfig(agentDir, settings);
+    await writeWebSearchConfig(settings);
 
     const piArgs = [
       "--mode",
@@ -151,6 +157,7 @@ export class AgentManager {
       piArgs.push("--thinking", thinkingLevel);
     }
     for (const extensionPath of this.piExtensionPaths) {
+      if (!settings.webSearch.enabled && isWebSearchExtensionPath(extensionPath)) continue;
       piArgs.push("--extension", extensionPath);
     }
 
@@ -172,6 +179,7 @@ export class AgentManager {
     const agentEnv: NodeJS.ProcessEnv = {
       ...process.env,
       ...providerEnv(settings),
+      ...webSearchEnv(settings),
       PATH: buildAgentPath({
         appDir,
         nodeBin: this.nodeBin,
