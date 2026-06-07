@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ThinkingIndicator } from "./ui/thinking-indicator.tsx";
 
 const STEPS = [
-  "Getting your workspace ready…",
+  "Getting your app ready…",
   "Setting up your app…",
   "Installing the building blocks…",
   "Starting things up…",

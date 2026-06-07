@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useStore } from "../store.tsx";
 import { useIcon } from "../lib/icon-context.tsx";
 import { Button } from "../components/ui/Button.tsx";
+import { AppChromeHeader } from "../components/AppChromeHeader.tsx";
 import { BuildChat } from "../components/BuildChat.tsx";
 import { CheckpointsMenu } from "../components/CheckpointsMenu.tsx";
 import {
@@ -50,51 +51,57 @@ export function MiniAppScreen({ appId }: { appId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="drag-region flex h-12 items-center gap-2 border-b border-border pl-28 pr-3">
-        <Button variant="ghost" size="sm" leadingIcon={AppsIcon} onClick={goDashboard}>
-          Apps
-        </Button>
-        <div className="flex items-center gap-2 px-1">
-          <span className="text-base leading-none">{app?.emoji ?? "·"}</span>
-          <span className="text-sm font-medium">{app?.name ?? "Loading..."}</span>
-        </div>
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            leadingIcon={ReloadIcon}
-            onClick={() => void felix.view.reload()}
-          >
-            Reload
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            leadingIcon={CheckpointsIcon}
-            onClick={() => {
-              setShowDeleteConfirm(false);
-              setDeleteError(null);
-              setShowCheckpoints((v) => !v);
-            }}
-          >
-            Checkpoints
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8 text-muted-foreground hover:text-destructive"
-            aria-label="Delete app"
-            title="Delete app"
-            onClick={() => {
-              setShowCheckpoints(false);
-              setDeleteError(null);
-              setShowDeleteConfirm(true);
-            }}
-          >
-            <TrashIcon />
-          </Button>
-        </div>
-      </header>
+      <AppChromeHeader
+        left={
+          <>
+            <Button variant="ghost" size="sm" leadingIcon={AppsIcon} onClick={goDashboard}>
+              Apps
+            </Button>
+            <div className="flex min-w-0 items-center gap-2 px-1">
+              <span className="text-base leading-none">{app?.emoji ?? "·"}</span>
+              <span className="truncate text-sm font-medium">{app?.name ?? "Loading..."}</span>
+            </div>
+          </>
+        }
+        right={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              leadingIcon={ReloadIcon}
+              onClick={() => void felix.view.reload()}
+            >
+              Reload
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              leadingIcon={CheckpointsIcon}
+              onClick={() => {
+                setShowDeleteConfirm(false);
+                setDeleteError(null);
+                setShowCheckpoints((v) => !v);
+              }}
+            >
+              Checkpoints
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 text-muted-foreground hover:text-destructive"
+              aria-label="Delete app"
+              title="Delete app"
+              onClick={() => {
+                setShowCheckpoints(false);
+                setDeleteError(null);
+                setShowDeleteConfirm(true);
+              }}
+            >
+              <TrashIcon />
+            </Button>
+          </>
+        }
+      />
 
       <div className="relative flex flex-1 overflow-hidden">
         <div ref={placeholderRef} className="flex-1 bg-muted/40">

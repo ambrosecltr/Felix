@@ -6,11 +6,12 @@ import { filesToChatAttachments } from "../lib/message-attachments.ts";
 import { type IconComponent, useIcon } from "../lib/icon-context.tsx";
 import { cn } from "../lib/utils.ts";
 import { Button } from "../components/ui/Button.tsx";
+import { AppChromeHeader } from "../components/AppChromeHeader.tsx";
 import { CreatingOverlay } from "../components/CreatingOverlay.tsx";
 import { MiniAppIconView } from "../components/MiniAppIconView.tsx";
 import { InputMessage } from "../components/ui/input-message.tsx";
 import { MyFelixPanel } from "./MyFelix.tsx";
-import felixIcon from "../assets/felix-icon.png";
+import felixIcon from "../assets/felix-icon.svg";
 
 type DashboardTab = "apps" | "build" | "profile";
 
@@ -54,23 +55,28 @@ export function Dashboard() {
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <header className="drag-region relative flex h-16 shrink-0 items-start justify-center px-4 pt-4">
-        <DashboardTabs
-          value={activeTab}
-          onValueChange={setActiveTab}
-          reducedMotion={shouldReduceMotion}
-        />
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="absolute right-3 top-3"
-          onClick={goSettings}
-          title="Settings"
-          aria-label="Settings"
-        >
-          <SettingsIcon />
-        </Button>
-      </header>
+      <AppChromeHeader
+        spacious
+        border={false}
+        center={
+          <DashboardTabs
+            value={activeTab}
+            onValueChange={setActiveTab}
+            reducedMotion={shouldReduceMotion}
+          />
+        }
+        right={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={goSettings}
+            title="Settings"
+            aria-label="Settings"
+          >
+            <SettingsIcon />
+          </Button>
+        }
+      />
 
       <main className="min-h-0 flex-1 overflow-hidden">
         <AnimatePresence mode="wait" initial={false}>
@@ -270,7 +276,7 @@ function BuildPanel({
   return (
     <section className="relative h-full overflow-hidden px-6 pb-3">
       <div className="pointer-events-none absolute left-1/2 top-[42%] flex w-full max-w-2xl -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-6 text-center">
-        <img src={felixIcon} alt="Felix" className="size-16 select-none" draggable={false} />
+        <img src={felixIcon} alt="Felix" className="size-24 select-none" draggable={false} />
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-semibold tracking-tight">
             What do you want to build today?

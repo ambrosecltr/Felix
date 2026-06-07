@@ -7,6 +7,7 @@ import { resizeImageForModel } from "./imageResize.ts";
 import { registerIpc } from "./ipc.ts";
 import { applyMacosWindowChrome } from "./macosWindowChrome.ts";
 import { MiniAppView } from "./miniAppView.ts";
+import { UpdateController } from "./updater.ts";
 import { persistWindowState, readWindowState } from "./windowState.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -17,6 +18,7 @@ app.setName("Felix");
 let mainWindow: BrowserWindow | null = null;
 let manager: MiniAppManager | null = null;
 let miniAppView: MiniAppView | null = null;
+let updates: UpdateController | null = null;
 
 function emit(event: PushEvent): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -101,6 +103,12 @@ function installAppMenu(): void {
       label: "Felix",
       submenu: [
         { role: "about", label: "About Felix" },
+        {
+          label: "Check for Updates...",
+          click: () => {
+            void updates?.checkForUpdates();
+          },
+        },
         { type: "separator" },
         { role: "hide", label: "Hide Felix" },
         { role: "hideOthers" },
@@ -117,6 +125,7 @@ function installAppMenu(): void {
 }
 
 app.whenReady().then(() => {
+  updates = new UpdateController((status) => emit({ kind: "update", status }));
   if (process.platform === "darwin") {
     const icon = nativeImage.createFromPath(appIconPath());
     if (!icon.isEmpty()) app.dock?.setIcon(icon);
@@ -127,7 +136,8 @@ app.whenReady().then(() => {
     resizeImage: resizeImageForModel,
   });
   createWindow();
-  registerIpc(manager, () => miniAppView);
+  registerIpc(manager, () => miniAppView, updates);
+  updates.start();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -138,4 +148,7 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => manager?.shutdown());
+app.on("before-quit", () => {
+  updates?.stop();
+  manager?.shutdown();
+});

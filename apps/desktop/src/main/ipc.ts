@@ -3,10 +3,15 @@ import type { MiniAppManager } from "@felix/core";
 import { MiniAppIconRequest, SendChatRequest, SetProfileNameRequest } from "@felix/contracts";
 import type { ExtensionUiResponse, FelixApiChannel } from "@felix/contracts";
 import type { MiniAppView, ViewBounds } from "./miniAppView.ts";
+import type { UpdateController } from "./updater.ts";
 
 const MAX_VIEW_BOUND = 100_000;
 
-export function registerIpc(manager: MiniAppManager, getView: () => MiniAppView | null): void {
+export function registerIpc(
+  manager: MiniAppManager,
+  getView: () => MiniAppView | null,
+  updates: UpdateController,
+): void {
   const handle = <C extends FelixApiChannel>(
     channel: C,
     fn: (arg: unknown) => unknown,
@@ -44,6 +49,9 @@ export function registerIpc(manager: MiniAppManager, getView: () => MiniAppView 
   handle("profile.get", () => manager.getProfileOverview());
   handle("profile.setName", (arg) => manager.setProfileName(SetProfileNameRequest.parse(arg)));
   handle("provider.models", (arg) => manager.listProviderModels(arg as never));
+  handle("update.status", () => updates.getStatus());
+  handle("update.check", () => updates.checkForUpdates());
+  handle("update.downloadAndInstall", () => updates.downloadAndInstall());
 
   // Mini app view control (not part of the typed FelixApi - main-only).
   ipcMain.handle("miniAppView.show", (_e, arg: { url: string; bounds: ViewBounds }) => {

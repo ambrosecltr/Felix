@@ -13,6 +13,7 @@ import {
 import { felix } from "../bridge.ts";
 import { useIcon } from "../lib/icon-context.tsx";
 import { useStore } from "../store.tsx";
+import { AppChromeHeader } from "../components/AppChromeHeader.tsx";
 import { Button } from "../components/ui/Button.tsx";
 import { Card } from "../components/ui/Card.tsx";
 import { InputField, InputGroup } from "../components/ui/input-group.tsx";
@@ -213,12 +214,14 @@ export function Settings() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="drag-region flex h-12 items-center justify-between border-b border-border pl-28 pr-3">
-        <span className="text-sm font-semibold tracking-tight">Settings</span>
-        <Button variant="ghost" size="sm" onClick={goDashboard}>
-          Done
-        </Button>
-      </header>
+      <AppChromeHeader
+        center={<span className="text-sm font-semibold tracking-tight">Settings</span>}
+        right={
+          <Button variant="ghost" size="sm" onClick={goDashboard}>
+            Done
+          </Button>
+        }
+      />
 
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-xl flex-col gap-5 px-6 py-10">

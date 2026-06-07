@@ -40,6 +40,33 @@ export const MiniAppIconRequest = z.object({
 });
 export type MiniAppIconRequest = z.infer<typeof MiniAppIconRequest>;
 
+export const UpdateDownloadProgress = z.object({
+  percent: z.number().min(0).max(100),
+  bytesPerSecond: z.number().nonnegative(),
+  transferred: z.number().nonnegative(),
+  total: z.number().nonnegative(),
+});
+export type UpdateDownloadProgress = z.infer<typeof UpdateDownloadProgress>;
+
+export const UpdateStatus = z.object({
+  state: z.enum([
+    "idle",
+    "checking",
+    "available",
+    "not-available",
+    "downloading",
+    "downloaded",
+    "installing",
+    "error",
+  ]),
+  currentVersion: z.string(),
+  availableVersion: z.string().nullable(),
+  progress: UpdateDownloadProgress.nullable(),
+  error: z.string().nullable(),
+  checkedAt: z.string().nullable(),
+});
+export type UpdateStatus = z.infer<typeof UpdateStatus>;
+
 /**
  * Request/response IPC methods (renderer -> main, awaitable).
  * Keys are channel names; tuple is [request, response].
@@ -63,6 +90,9 @@ export interface FelixApi {
   "profile.get": [void, ProfileOverview];
   "profile.setName": [SetProfileNameRequest, ProfileOverview];
   "provider.models": [ProviderModelsRequest, ProviderModelsResponse];
+  "update.status": [void, UpdateStatus];
+  "update.check": [void, UpdateStatus];
+  "update.downloadAndInstall": [void, UpdateStatus];
 }
 
 export type FelixApiChannel = keyof FelixApi;
@@ -97,6 +127,10 @@ export const PushEvent = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("profileUpdated"),
     profile: ProfileOverview,
+  }),
+  z.object({
+    kind: z.literal("update"),
+    status: UpdateStatus,
   }),
 ]);
 export type PushEvent = z.infer<typeof PushEvent>;

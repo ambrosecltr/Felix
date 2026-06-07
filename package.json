@@ -1,6 +1,6 @@
 {
   "name": "felix",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -13,12 +13,14 @@
     "typecheck": "turbo run typecheck",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist packages/*/dist .turbo apps/*/.turbo packages/*/.turbo",
     "dev:desktop": "turbo run dev --filter=@felix/desktop",
+    "dev:desktop:update": "turbo run dev:update --filter=@felix/desktop",
     "test": "bun test packages/contracts/test packages/shared/test apps/core/test",
     "setup:runtime": "node scripts/fetch-node-runtime.mjs",
     "setup:bun": "node scripts/fetch-bun-runtime.mjs",
     "bundle:agent": "node scripts/bundle-agent.mjs",
     "make:icon": "node scripts/make-app-icon.mjs",
-    "package:desktop": "cd apps/desktop && bun run package"
+    "package:desktop": "cd apps/desktop && bun run package",
+    "package:desktop:unsigned": "cd apps/desktop && bun run package:unsigned"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",

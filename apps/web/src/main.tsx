@@ -5,6 +5,7 @@ import { IconProvider } from "./lib/icon-context.tsx";
 import { ShapeProvider } from "./lib/shape-context.tsx";
 import { SurfaceProvider } from "./lib/surface-context.tsx";
 import { StoreProvider } from "./store.tsx";
+import { UpdateProvider } from "./components/UpdateProvider.tsx";
 import "./index.css";
 
 const root = document.getElementById("root");
@@ -16,9 +17,11 @@ createRoot(root).render(
       <ShapeProvider defaultShape="pill">
         <IconProvider defaultLibrary="hugeicons">
           <SurfaceProvider value={1}>
-            <StoreProvider>
-              <App />
-            </StoreProvider>
+            <UpdateProvider>
+              <StoreProvider>
+                <App />
+              </StoreProvider>
+            </UpdateProvider>
           </SurfaceProvider>
         </IconProvider>
       </ShapeProvider>

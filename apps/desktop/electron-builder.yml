@@ -3,6 +3,11 @@ productName: Felix
 copyright: Copyright © 2026 Felix
 artifactName: ${productName}-${version}-${arch}.${ext}
 
+publish:
+  provider: github
+  owner: ambrosecltr
+  repo: Felix
+
 directories:
   output: release
   buildResources: resources
@@ -38,12 +43,23 @@ extraResources:
 mac:
   category: public.app-category.education
   icon: resources/icon.icns
+  hardenedRuntime: true
+  forceCodeSigning: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  notarize: true
   target:
     - target: dmg
       arch:
         - arm64
-  # Local/dev builds: don't require an Apple Developer identity.
-  identity: null
+    - target: zip
+      arch:
+        - arm64
+  # electron-builder picks up the Developer ID certificate from CSC_LINK /
+  # CSC_KEY_PASSWORD or CSC_NAME. Release packaging fails without one; use
+  # `bun run package:unsigned` for local packaging that intentionally skips
+  # signing and notarization.
 
 dmg:
   contents:
