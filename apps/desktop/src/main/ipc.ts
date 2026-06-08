@@ -67,11 +67,12 @@ export function registerIpc(
   handle("update.downloadAndInstall", () => updates.downloadAndInstall());
 
   // Mini app view control (not part of the typed FelixApi - main-only).
-  ipcMain.handle("miniAppView.show", (_e, arg: { url: string; bounds: ViewBounds }) => {
+  ipcMain.handle("miniAppView.show", (_e, arg: { appId: string; url: string; bounds: ViewBounds }) => {
     const view = requireMiniAppView(getView);
+    const appId = validateAppId(arg.appId);
     const url = validateMiniAppUrl(arg.url);
     const bounds = validateBounds(arg.bounds);
-    view.show(url, bounds);
+    view.show(appId, url, bounds);
   });
   ipcMain.handle("miniAppView.setBounds", (_e, bounds: ViewBounds) => {
     const view = requireMiniAppView(getView);
@@ -103,6 +104,13 @@ function validateMiniAppUrl(rawUrl: string): string {
     throw new Error(`Mini app URL is not allowed: ${url.origin}`);
   }
   return url.toString();
+}
+
+function validateAppId(appId: string): string {
+  if (typeof appId !== "string" || appId.trim().length === 0) {
+    throw new Error("Invalid mini app id");
+  }
+  return appId;
 }
 
 function validateBounds(bounds: ViewBounds): ViewBounds {

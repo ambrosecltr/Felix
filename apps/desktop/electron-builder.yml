@@ -40,6 +40,8 @@ extraResources:
     to: native
   - from: resources/icon.png
     to: icon.png
+  - from: resources/agent-cursor.png
+    to: agent-cursor.png
   - from: resources/icon.icns
     to: icon.icns
 

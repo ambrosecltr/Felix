@@ -6,6 +6,8 @@ Felix is a macOS coding app for kids. They describe the app they want to make, F
 
 The goal is to make real coding feel approachable without turning it into a toy. Felix creates actual Vite apps on disk, runs them locally, keeps their history in git, and uses a coding agent to make changes while the app preview updates.
 
+![Felix app screens](docs/images/felix_screens.png)
+
 ## Download
 
 Download the latest signed and notarized macOS build from [GitHub Releases](../../releases/latest).
@@ -17,9 +19,15 @@ Current public builds are Apple Silicon only (`arm64`). Download the DMG, open i
 - Turns a plain-language idea into a working mini app.
 - Lets kids keep iterating through chat instead of starting over.
 - Shows the app in a live preview while Felix works.
+- Gives the coding agent browser-preview tools to inspect, screenshot, click, type, reload, and read console logs from the running mini app before calling work done.
 - Keeps each mini app in its own local folder with its own source code, SQLite database, Vite dev server, and git history.
+- Bundles Felix-specific workspace skills for app craft, visual design, games, safety, assets, robustness, and build quality.
 - Supports model providers through Settings, currently including OpenRouter, DeepSeek, OpenCode Go, and OpenCode Zen.
+- Supports a configurable learning level so Felix can adjust how much teaching context it includes while building.
+- Supports optional web search integrations for agents that need current information.
 - Can generate dashboard icons when icon generation is enabled.
+- Includes adult-facing Settings controls for provider configuration, web search, icon generation, network permissions, and a PIN-protected lockdown mode.
+- Enforces a stricter package install policy so mini apps use approved dependencies instead of letting arbitrary install commands run freely.
 - Ships release builds with bundled Node, Bun, and agent runtimes, so the installed app does not depend on whatever developer tools are already on the Mac.
 
 ## Safety And Sandboxing

@@ -19,6 +19,10 @@ import {
   writeWebSearchConfig,
 } from "./webSearchConfig.ts";
 import {
+  BrowserPreviewBridgeServer,
+  type BrowserPreviewController,
+} from "./browserPreview.ts";
+import {
   miniAppBunWrapperDir,
   miniAppBunWrapperPath,
   miniAppBunWrapperScript,
@@ -42,6 +46,7 @@ interface PromptCommand {
 function kidToolLabel(toolName: string): string {
   const name = toolName.toLowerCase();
   if (name.includes("set_app_metadata")) return "Naming your app";
+  if (name.startsWith("browser_")) return "Checking the app";
   if (name.includes("read") || name === "cat") return "Reading your code";
   if (name.includes("write") || name.includes("edit") || name.includes("patch")) {
     return "Writing your code";
@@ -101,6 +106,7 @@ export class AgentManager {
     private readonly onEvent: EventSink,
     private readonly getSettings: () => Promise<FelixSettings>,
     private readonly piExtensionPaths: readonly string[] = [],
+    private readonly browserPreview: BrowserPreviewController | null = null,
   ) {}
 
   private async ensureWorkspaceFiles(
@@ -155,6 +161,19 @@ export class AgentManager {
     await fs.mkdir(sessionDir, { recursive: true });
     await writeProviderConfig(agentDir, settings);
     await writeWebSearchConfig(settings);
+    const browserBridge = this.browserPreview
+      ? new BrowserPreviewBridgeServer(
+          appId,
+          path.join(appDir, ".pi", "browser-preview"),
+          this.browserPreview,
+        )
+      : null;
+    try {
+      await browserBridge?.start();
+    } catch (err) {
+      browserBridge?.dispose();
+      throw err;
+    }
 
     const piArgs = [
       "--mode",
@@ -181,37 +200,45 @@ export class AgentManager {
     let command = this.nodeBin;
     let args = [this.piBinPath, ...piArgs];
     let sandboxProfilePath: string | null = null;
+    let child: ChildProcess;
 
-    if (isSandboxAvailable()) {
-      sandboxProfilePath = await this.writeSandboxProfile(
-        appDir,
-        agentDir,
-        settings.sandboxAllowNetwork,
-      );
-      ({ command, args } = wrapWithSandbox(sandboxProfilePath, command, args));
+    try {
+      if (isSandboxAvailable()) {
+        sandboxProfilePath = await this.writeSandboxProfile(
+          appDir,
+          agentDir,
+          settings.sandboxAllowNetwork,
+        );
+        ({ command, args } = wrapWithSandbox(sandboxProfilePath, command, args));
+      }
+
+      const agentEnv: NodeJS.ProcessEnv = {
+        ...process.env,
+        ...providerEnv(settings),
+        ...webSearchEnv(settings),
+        PATH: buildAgentPath({
+          appDir,
+          nodeBin: this.nodeBin,
+          bunBin: this.bunBin,
+          inheritedPath: process.env.PATH,
+        }),
+        PI_AGENT_DIR: agentDir,
+        IMPECCABLE_NO_UPDATE_CHECK: "1",
+        FELIX_SYSTEM_PROMPT: felixSystemPrompt(settings.learningLevel),
+      };
+      if (browserBridge) agentEnv.FELIX_BROWSER_BRIDGE_DIR = browserBridge.dir;
+      delete agentEnv.XAI_API_KEY;
+
+      child = spawn(command, args, {
+        cwd: appDir,
+        stdio: ["pipe", "pipe", "pipe"],
+        env: agentEnv,
+      });
+    } catch (err) {
+      if (sandboxProfilePath) await fs.rm(sandboxProfilePath, { force: true }).catch(() => {});
+      browserBridge?.dispose();
+      throw err;
     }
-
-    const agentEnv: NodeJS.ProcessEnv = {
-      ...process.env,
-      ...providerEnv(settings),
-      ...webSearchEnv(settings),
-      PATH: buildAgentPath({
-        appDir,
-        nodeBin: this.nodeBin,
-        bunBin: this.bunBin,
-        inheritedPath: process.env.PATH,
-      }),
-      PI_AGENT_DIR: agentDir,
-      IMPECCABLE_NO_UPDATE_CHECK: "1",
-      FELIX_SYSTEM_PROMPT: felixSystemPrompt(settings.learningLevel),
-    };
-    delete agentEnv.XAI_API_KEY;
-
-    const child = spawn(command, args, {
-      cwd: appDir,
-      stdio: ["pipe", "pipe", "pipe"],
-      env: agentEnv,
-    });
 
     const send = (cmd: object) => {
       if (!child.stdin || child.stdin.destroyed) return;
@@ -219,8 +246,14 @@ export class AgentManager {
     };
     const cleanup = () => {
       if (sandboxProfilePath) void fs.rm(sandboxProfilePath, { force: true }).catch(() => {});
+      browserBridge?.dispose();
     };
-    const running: RunningAgent = { process: child, send, streaming: false, cleanup };
+    const running: RunningAgent = {
+      process: child,
+      send,
+      streaming: false,
+      cleanup,
+    };
     this.agents.set(appId, running);
 
     // Keep the conversation going as it grows: PI compacts old context
@@ -277,10 +310,12 @@ export class AgentManager {
     switch (event.type) {
       case "agent_start":
         if (running) running.streaming = true;
+        this.browserPreview?.setAgentActive?.(appId, true);
         this.onEvent(appId, { type: "agent_start" });
         break;
       case "agent_end":
         if (running) running.streaming = false;
+        this.browserPreview?.setAgentActive?.(appId, false);
         this.onEvent(appId, { type: "agent_end" });
         break;
       case "message_start":
@@ -385,6 +420,7 @@ export class AgentManager {
   }
 
   abort(appId: string): void {
+    this.browserPreview?.setAgentActive?.(appId, false);
     this.agents.get(appId)?.send({ type: "abort" });
   }
 
@@ -415,6 +451,7 @@ export class AgentManager {
   async stop(appId: string): Promise<void> {
     const running = this.agents.get(appId);
     if (!running) return;
+    this.browserPreview?.setAgentActive?.(appId, false);
     const stopped = waitForExit(running.process, STOP_TIMEOUT_MS);
     running.process.kill("SIGTERM");
     running.cleanup();
@@ -480,10 +517,25 @@ function toolCallDetail(toolName: string, args: unknown): string | undefined {
   const targetPath = readString(record.path) ?? readString(record.filePath) ?? readString(record.file);
   const command = readString(record.command) ?? readString(record.cmd);
   const query = readString(record.query) ?? readString(record.pattern);
+  const x = readNumber(record.x);
+  const y = readNumber(record.y);
 
   if (normalizedName.includes("set_app_metadata")) {
     return appName ? `Saved ${shortenToolText(appName)}` : "Saved app details";
   }
+  if (normalizedName === "browser_screenshot") return "Looked at the preview";
+  if (normalizedName === "browser_snapshot") return "Read the preview";
+  if (normalizedName === "browser_logs") return "Checked preview errors";
+  if (normalizedName === "browser_reload") return "Reloaded the preview";
+  if (normalizedName === "browser_click") {
+    return x !== undefined && y !== undefined ? `Clicked ${Math.round(x)}, ${Math.round(y)}` : "Clicked the preview";
+  }
+  if (normalizedName === "browser_move_cursor") {
+    return x !== undefined && y !== undefined ? `Moved to ${Math.round(x)}, ${Math.round(y)}` : "Moved around";
+  }
+  if (normalizedName === "browser_type") return "Typed in the preview";
+  if (normalizedName === "browser_key") return "Pressed a key";
+  if (normalizedName === "browser_scroll") return "Scrolled the preview";
   if (normalizedName.includes("read") || normalizedName === "cat") {
     return targetPath ? `Read ${shortenToolText(targetPath)}` : "Read a file";
   }
@@ -514,6 +566,10 @@ function shortenToolText(value: string): string {
   const parts = normalized.split("/").filter(Boolean);
   if (parts.length >= 3) return `.../${parts.slice(-3).join("/")}`;
   return `${normalized.slice(0, 77)}...`;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 async function fileExists(filePath: string): Promise<boolean> {

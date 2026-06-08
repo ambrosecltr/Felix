@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { BrowserWindow, Menu, app, nativeImage } from "electron";
 import { MiniAppManager, resolvePiBin } from "@felix/core";
@@ -57,7 +58,10 @@ function createWindow(): void {
   applyMacosWindowChrome(window, appResourcesDir);
   persistWindowState(window);
   mainWindow = window;
-  const view = new MiniAppView(window);
+  const view = new MiniAppView(window, {
+    resizeImage: resizeImageForModel,
+    cursorImageDataUrl: agentCursorDataUrl(appResourcesDir),
+  });
   miniAppView = view;
 
   window.once("ready-to-show", () => {
@@ -92,6 +96,15 @@ function resourcesDir(): string {
   // under the app's resources directory.
   if (app.isPackaged) return process.resourcesPath;
   return path.join(__dirname, "../../resources");
+}
+
+function agentCursorDataUrl(appResourcesDir: string): string | null {
+  try {
+    const bytes = fs.readFileSync(path.join(appResourcesDir, "agent-cursor.png"));
+    return `data:image/png;base64,${bytes.toString("base64")}`;
+  } catch {
+    return null;
+  }
 }
 
 function installAppMenu(): void {
@@ -134,6 +147,16 @@ app.whenReady().then(() => {
   manager = new MiniAppManager(resolvePiBin(resourcesDir()), emit, {
     resourcesDir: resourcesDir(),
     resizeImage: resizeImageForModel,
+    browserPreview: {
+      execute: (appId, request) => {
+        const view = miniAppView;
+        if (!view) throw new Error("Felix preview is not available.");
+        return view.executeBrowserTool(appId, request);
+      },
+      setAgentActive: (appId, active) => {
+        miniAppView?.setAgentActive(appId, active);
+      },
+    },
   });
   createWindow();
   registerIpc(manager, () => miniAppView, updates);

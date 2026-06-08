@@ -40,8 +40,8 @@ const api = {
     return () => ipcRenderer.off(PUSH_CHANNEL, handler);
   },
   view: {
-    show: (url: string, bounds: ViewBounds) =>
-      ipcRenderer.invoke("miniAppView.show", { url, bounds }),
+    show: (appId: string, url: string, bounds: ViewBounds) =>
+      ipcRenderer.invoke("miniAppView.show", { appId, url, bounds }),
     setBounds: (bounds: ViewBounds) => ipcRenderer.invoke("miniAppView.setBounds", bounds),
     hide: () => ipcRenderer.invoke("miniAppView.hide"),
     reload: () => ipcRenderer.invoke("miniAppView.reload"),

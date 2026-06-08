@@ -27,6 +27,7 @@ import { newId, slugify } from "@felix/shared/ids";
 import { felixPaths, miniAppPaths } from "@felix/shared/paths";
 import { templateFiles } from "@felix/mini-app-template/files";
 import { AgentManager, readAgentTokenUsageEvent } from "./agentManager.ts";
+import type { BrowserPreviewController } from "./browserPreview.ts";
 import { bundledBunPath, resolveBun } from "./bunRuntime.ts";
 import {
   type AttachmentImagePromptNote,
@@ -59,6 +60,8 @@ export interface MiniAppManagerOptions {
   resourcesDir?: string;
   /** Optional platform image resizer for model-native image attachments. */
   resizeImage?: ResizeImage;
+  /** Optional live preview controller exposed to the agent through Felix browser tools. */
+  browserPreview?: BrowserPreviewController;
 }
 
 type Emit = (event: PushEvent) => void;
@@ -121,6 +124,7 @@ export class MiniAppManager {
       (appId, event) => this.handleAgentEvent(appId, event),
       () => this.settings.get(),
       piExtensionPaths,
+      options.browserPreview ?? null,
     );
   }
 

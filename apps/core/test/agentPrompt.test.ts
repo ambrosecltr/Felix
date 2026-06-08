@@ -6,6 +6,7 @@ const NEW_SKILLS = [
   ".pi/skills/felix-build-quality/SKILL.md",
   ".pi/skills/felix-robustness/SKILL.md",
   ".pi/skills/felix-assets/SKILL.md",
+  ".pi/skills/felix-browser-preview/SKILL.md",
   ".pi/skills/felix-game-engine/SKILL.md",
   ".pi/skills/felix-game-quality/SKILL.md",
   ".pi/skills/felix-frontend-design/SKILL.md",

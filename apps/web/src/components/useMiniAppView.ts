@@ -8,6 +8,7 @@ import { felix } from "../bridge.ts";
  */
 export function useMiniAppView(
   placeholderRef: RefObject<HTMLElement>,
+  appId: string,
   devUrl: string | null,
 ): void {
   useEffect(() => {
@@ -22,7 +23,7 @@ export function useMiniAppView(
         width: rect.width,
         height: rect.height,
       };
-      void felix.view.show(devUrl, bounds);
+      void felix.view.show(appId, devUrl, bounds);
     };
 
     sync();
@@ -37,5 +38,5 @@ export function useMiniAppView(
       window.removeEventListener("scroll", sync, true);
       void felix.view.hide();
     };
-  }, [placeholderRef, devUrl]);
+  }, [placeholderRef, appId, devUrl]);
 }

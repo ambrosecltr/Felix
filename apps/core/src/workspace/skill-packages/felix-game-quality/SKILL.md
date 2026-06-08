@@ -1,6 +1,6 @@
 ---
 name: felix-game-quality
-description: Thorough game QA workflow for Felix mini apps. Use after building or changing any game, simulation, animated toy, canvas/WebGL/SVG/DOM game surface, controls, physics, scoring, levels, menus, win/lose state, or interactive world. Covers Browser/manual checks, optional state hooks, screenshots, console-error checks, and multi-step control verification.
+description: Thorough game QA workflow for Felix mini apps. Use after building or changing any game, simulation, animated toy, canvas/WebGL/SVG/DOM game surface, controls, physics, scoring, levels, menus, win/lose state, or interactive world. Covers Felix preview checks, optional state hooks, screenshots, console-error checks, and multi-step control verification.
 ---
 
 # Felix Game Quality
@@ -9,7 +9,7 @@ Use this skill before telling a child a game is done. Game bugs are often invisi
 
 ## Felix Setup
 
-Felix mini apps are already running with hot reload. You usually do not start or restart the server. Find the current preview URL from the app context or existing process, then use the Browser plugin or direct rendered inspection to play the changed behavior.
+Felix mini apps are already running with hot reload. You usually do not start or restart the server. Use `browser_snapshot`, `browser_screenshot`, `browser_logs`, and the browser action tools to play the changed behavior in the live preview.
 
 Do not install test tools or ask the child to run commands. Use the tools already available in the Felix agent environment.
 
@@ -38,7 +38,7 @@ window.render_game_to_text = () =>
 ## Verification Loop
 
 1. Pick one behavior to verify: movement, jumping, launching, menu flow, scoring, collision, level change, win/lose, restart, etc.
-2. Use Browser/manual actions to perform the controls or clicks a player would use.
+2. Use browser action tools to perform the controls or clicks a player would use.
 3. Inspect screenshots, visible state, and console/page errors.
 4. Review console/page errors. Fix the first new error before continuing.
 5. Think through the full chain, not just the button press: cause, intermediate state, visible result, stored state, repeat behavior.

@@ -152,14 +152,16 @@ description: A quick smoke test Felix runs before telling a kid a feature is don
 
 ## Before you say it works
 Actually verify, do not assume:
-- The app loads with no errors. Check the browser console for red errors and fix them.
+- The app loads with no errors. Use \`browser_logs\` for console errors and fix them.
 - The happy path works: do the main thing the kid asked, start to finish, at least once.
 - It still loads when there is no saved data yet (fresh app, empty lists).
 - Buttons and actions work more than once, not just on the first click.
 - Text is readable and the main controls are visible in the window.
 
 ## How to check
-- Read the running result, not just the code you wrote.
+- Use \`browser_snapshot\` to read the running result, not just the code you wrote.
+- Use \`browser_screenshot\` when layout, readability, canvas output, or visual polish matters.
+- Use browser action tools to click, type, press keys, and scroll through the main workflow.
 - If you changed saving/loading, confirm a value survives a reload.
 - If something is broken, fix it before answering - do not hand the kid a broken app.
 
@@ -224,4 +226,3 @@ Build pictures and sounds right into the app so they always work, even when the 
 - If a kid wants a very specific picture you cannot draw, offer a close emoji or simple SVG version and keep building.
 `;
 }
-

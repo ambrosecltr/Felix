@@ -36,7 +36,7 @@ export function MiniAppScreen({ appId }: { appId: string }) {
   const TrashIcon = useIcon("trash");
   const miniAppViewUrl = isRunning && !showDeleteConfirm ? devUrl : null;
 
-  useMiniAppView(placeholderRef, miniAppViewUrl);
+  useMiniAppView(placeholderRef, appId, miniAppViewUrl);
 
   const confirmDelete = async () => {
     setIsDeleting(true);

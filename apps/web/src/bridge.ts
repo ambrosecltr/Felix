@@ -19,7 +19,7 @@ interface FelixBridge {
   ): Promise<FelixApiResponse<C>>;
   onPush(listener: (event: PushEvent) => void): () => void;
   view: {
-    show(url: string, bounds: ViewBounds): Promise<void>;
+    show(appId: string, url: string, bounds: ViewBounds): Promise<void>;
     setBounds(bounds: ViewBounds): Promise<void>;
     hide(): Promise<void>;
     reload(): Promise<void>;

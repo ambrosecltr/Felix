@@ -2,7 +2,11 @@ import type { LearningLevel } from "@felix/contracts";
 
 import { felixAgentsFile } from "../prompts/agentsFile.ts";
 import { felixDesignDoc, felixProductDoc } from "./docs.ts";
-import { felixAskUserQuestionExtension, felixSetAppMetadataExtension } from "./extensions.ts";
+import {
+  felixAskUserQuestionExtension,
+  felixBrowserPreviewExtension,
+  felixSetAppMetadataExtension,
+} from "./extensions.ts";
 import { felixSkillPackageFiles } from "./skillPackages.ts";
 import {
   felixAssetsSkill,
@@ -161,6 +165,11 @@ Say what changed in one short, cheerful sentence. How much you explain depends o
       path: ".pi/skills/felix-design-style/SKILL.md",
       overwrite: true,
       content: felixDesignStyleSkill(),
+    },
+    {
+      path: ".pi/extensions/felix-browser-preview/index.ts",
+      overwrite: true,
+      content: felixBrowserPreviewExtension(),
     },
     {
       path: ".pi/extensions/felix-ask-user-question/index.ts",
