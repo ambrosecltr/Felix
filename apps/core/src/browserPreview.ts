@@ -12,6 +12,7 @@ export const browserPreviewToolNames = [
   "browser_key",
   "browser_scroll",
   "browser_move_cursor",
+  "browser_game",
 ] as const;
 
 export type BrowserPreviewToolName = (typeof browserPreviewToolNames)[number];

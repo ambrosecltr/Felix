@@ -133,7 +133,8 @@ type BrowserToolName =
   | "browser_type"
   | "browser_key"
   | "browser_scroll"
-  | "browser_move_cursor";
+  | "browser_move_cursor"
+  | "browser_game";
 
 type ToolParameters = ToolDefinition["parameters"];
 
@@ -215,6 +216,27 @@ const logsParameters = {
   additionalProperties: false,
 } as ToolParameters;
 
+const gameParameters = {
+  type: "object",
+  properties: {
+    action: {
+      type: "string",
+      enum: ["pause", "resume", "step", "state"],
+      default: "state",
+      description:
+        "pause/resume freeze or unfreeze the game loop, step advances the game by a fixed number of frames while paused, state just reads window.render_game_to_text().",
+    },
+    frames: {
+      type: "number",
+      minimum: 1,
+      maximum: 600,
+      default: 1,
+      description: "Number of frames to advance when action is step.",
+    },
+  },
+  additionalProperties: false,
+} as ToolParameters;
+
 export default function (pi: ExtensionAPI) {
   registerBrowserTool(pi, {
     name: "browser_snapshot",
@@ -274,6 +296,13 @@ export default function (pi: ExtensionAPI) {
       "Move Felix's visible cursor to a viewport coordinate without clicking. Use this sparingly for hover checks.",
     parameters: moveCursorParameters,
   });
+  registerBrowserTool(pi, {
+    name: "browser_game",
+    label: "Control Game",
+    description:
+      "Verify fast or animated games without racing the game clock. Pause or resume the game loop, step it a fixed number of frames while paused, or read window.render_game_to_text() state. Use this instead of live screenshots when a game moves too fast to smoke-test by hand. Requires the game to expose window.felixGame.pause()/resume()/step() and window.render_game_to_text().",
+    parameters: gameParameters,
+  });
 }
 
 function registerBrowserTool(
@@ -296,6 +325,7 @@ function registerBrowserTool(
       "Use browser_screenshot when layout, canvas/SVG/WebGL output, readability, or visual state matters.",
       "Use browser_logs after code changes and fix new warnings or errors before answering.",
       "Use browser_click, browser_type, browser_key, and browser_scroll to run the same path the child will use.",
+      "For fast or animated games, do not race the clock with live screenshots: use browser_game to pause, read render_game_to_text() state, step a few frames, and read again. Add window.felixGame.pause()/resume()/step() and window.render_game_to_text() to the game first if they are missing.",
       "Tool coordinates are viewport coordinates. browser_screenshot tells you how to map screenshot points to viewport coordinates when scaling is involved.",
     ],
     parameters: definition.parameters,

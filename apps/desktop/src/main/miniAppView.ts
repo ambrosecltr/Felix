@@ -185,6 +185,93 @@ const SNAPSHOT_SCRIPT = `
 })()
 `;
 
+type GameAction = "pause" | "resume" | "step" | "state";
+
+interface GameResult {
+  hooksFound: boolean;
+  actionRan: boolean;
+  paused: boolean | null;
+  steppedFrames: number | null;
+  gameState: string | null;
+  gameStateError: string | null;
+  message: string | null;
+}
+
+function buildGameScript(action: GameAction, frames: number): string {
+  return `
+(async () => {
+  const clean = (value, max) =>
+    String(value ?? "").replace(/\\s+/g, " ").trim().slice(0, max);
+  const action = ${JSON.stringify(action)};
+  const frames = ${JSON.stringify(frames)};
+  const game =
+    (window.felixGame && typeof window.felixGame === "object" ? window.felixGame : null);
+  const hooks = {
+    pause: game && typeof game.pause === "function" ? game.pause.bind(game) : null,
+    resume: game && typeof game.resume === "function" ? game.resume.bind(game) : null,
+    step:
+      game && typeof game.step === "function"
+        ? game.step.bind(game)
+        : typeof window.advanceTime === "function"
+          ? (n) => window.advanceTime(n)
+          : null,
+    state:
+      typeof window.render_game_to_text === "function"
+        ? window.render_game_to_text.bind(window)
+        : null,
+  };
+  const hooksFound = Boolean(hooks.pause || hooks.resume || hooks.step || hooks.state);
+
+  let actionRan = false;
+  let message = null;
+  try {
+    if (action === "pause") {
+      if (hooks.pause) { await hooks.pause(); actionRan = true; }
+      else message = "No window.felixGame.pause() hook is available.";
+    } else if (action === "resume") {
+      if (hooks.resume) { await hooks.resume(); actionRan = true; }
+      else message = "No window.felixGame.resume() hook is available.";
+    } else if (action === "step") {
+      if (hooks.step) { await hooks.step(frames); actionRan = true; }
+      else message = "No window.felixGame.step() or window.advanceTime() hook is available.";
+    } else {
+      actionRan = true;
+    }
+  } catch (err) {
+    message = err instanceof Error ? err.message : String(err);
+  }
+
+  let paused = null;
+  if (game && typeof game.paused === "boolean") paused = game.paused;
+  else if (game && typeof game.isPaused === "function") {
+    try { paused = Boolean(game.isPaused()); } catch (err) { paused = null; }
+  }
+
+  let gameState = null;
+  let gameStateError = null;
+  if (hooks.state) {
+    try {
+      let value = hooks.state();
+      if (value && typeof value.then === "function") value = await value;
+      gameState = clean(value, ${MAX_GAME_STATE_TEXT});
+    } catch (err) {
+      gameStateError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  return {
+    hooksFound,
+    actionRan,
+    paused,
+    steppedFrames: action === "step" && actionRan ? frames : null,
+    gameState,
+    gameStateError,
+    message,
+  };
+})()
+`;
+}
+
 /**
  * Manages a single WebContentsView layered over the main window that shows
  * the currently open mini app's running dev server.
@@ -301,6 +388,8 @@ export class MiniAppView {
         return this.scroll(request.params);
       case "browser_move_cursor":
         return this.moveCursor(request.params);
+      case "browser_game":
+        return this.game(request.params);
     }
   }
 
@@ -388,6 +477,16 @@ export class MiniAppView {
     const raw = (await view.webContents.executeJavaScript(SNAPSHOT_SCRIPT, false)) as unknown;
     const snapshot = normalizeSnapshot(raw);
     return textResponse(formatSnapshot(snapshot, this.filteredLogs("warnings-and-errors", 12)));
+  }
+
+  private async game(params: Record<string, unknown>): Promise<BrowserPreviewToolResponse> {
+    const view = this.requireVisibleView();
+    await this.waitForLoad();
+    const action = readGameAction(params.action);
+    const frames = readGameFrames(params.frames);
+    const raw = (await view.webContents.executeJavaScript(buildGameScript(action, frames), false)) as unknown;
+    const result = normalizeGameResult(raw);
+    return textResponse(formatGameResult(action, frames, result));
   }
 
   private async screenshot(): Promise<BrowserPreviewToolResponse> {
@@ -690,6 +789,62 @@ function normalizeSnapshot(value: unknown): SnapshotData {
     gameState: readNullableString(value.gameState)?.slice(0, MAX_GAME_STATE_TEXT) ?? null,
     gameStateError: readNullableString(value.gameStateError),
   };
+}
+
+function normalizeGameResult(value: unknown): GameResult {
+  const record = isRecord(value) ? value : {};
+  return {
+    hooksFound: record.hooksFound === true,
+    actionRan: record.actionRan === true,
+    paused: typeof record.paused === "boolean" ? record.paused : null,
+    steppedFrames: readFiniteNumber(record.steppedFrames, Number.NaN) || null,
+    gameState: readNullableString(record.gameState)?.slice(0, MAX_GAME_STATE_TEXT) ?? null,
+    gameStateError: readNullableString(record.gameStateError),
+    message: readNullableString(record.message),
+  };
+}
+
+function formatGameResult(action: GameAction, frames: number, result: GameResult): string {
+  const lines: string[] = [];
+  if (!result.hooksFound) {
+    lines.push(
+      "No game test hooks were found on this app.",
+      "To make a fast game verifiable, expose window.felixGame.pause(), .resume(), .step(frames), and window.render_game_to_text().",
+    );
+    return lines.join("\n");
+  }
+
+  if (action === "step") {
+    lines.push(result.actionRan ? `Stepped the game by ${frames} frame${frames === 1 ? "" : "s"}.` : "Could not step the game.");
+  } else if (action === "pause") {
+    lines.push(result.actionRan ? "Paused the game." : "Could not pause the game.");
+  } else if (action === "resume") {
+    lines.push(result.actionRan ? "Resumed the game." : "Could not resume the game.");
+  } else {
+    lines.push("Read the current game state.");
+  }
+
+  if (result.message && !result.actionRan) lines.push(result.message);
+  if (result.paused !== null) lines.push(`Paused: ${result.paused ? "yes" : "no"}`);
+
+  if (result.gameState) {
+    lines.push("", "Game state:", result.gameState);
+  } else if (result.gameStateError) {
+    lines.push("", `Game state hook error: ${result.gameStateError}`);
+  } else {
+    lines.push("", "No window.render_game_to_text() output is available for this game.");
+  }
+  return lines.join("\n");
+}
+
+function readGameAction(value: unknown): GameAction {
+  if (value === "pause" || value === "resume" || value === "step" || value === "state") return value;
+  return "state";
+}
+
+function readGameFrames(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 1;
+  return Math.round(clampNumber(value, 1, 600));
 }
 
 function normalizeViewport(value: unknown): SnapshotData["viewport"] {

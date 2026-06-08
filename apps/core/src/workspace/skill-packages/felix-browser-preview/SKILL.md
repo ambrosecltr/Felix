@@ -15,6 +15,7 @@ Felix mini apps are already running in the live desktop preview. Use the browser
 - `browser_reload`: reload the app when testing fresh state, saved data, or recovery.
 - `browser_click`, `browser_type`, `browser_key`, `browser_scroll`: run the same actions the child will use.
 - `browser_move_cursor`: check hover or move Felix's visible cursor before an action.
+- `browser_game`: pause, resume, or step a real-time game by a fixed number of frames and read `render_game_to_text()` state. For fast or animated games, prefer this over live screenshots so the game clock does not advance while you think.
 
 ## Verification Pattern
 
@@ -46,6 +47,8 @@ window.render_game_to_text = () =>
 ```
 
 Keep this hook concise and player-focused. It should describe current state, not dump the whole program.
+
+For fast games that move too quickly to smoke-test by hand, also expose `window.felixGame.pause()`, `.resume()`, and `.step(frames)` so `browser_game` can freeze the loop, advance a few frames deterministically, and read state without racing the clock. See the `felix-game-quality` skill for the full pattern.
 
 ## Finish Rule
 

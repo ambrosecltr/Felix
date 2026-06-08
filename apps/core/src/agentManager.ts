@@ -536,6 +536,13 @@ function toolCallDetail(toolName: string, args: unknown): string | undefined {
   if (normalizedName === "browser_type") return "Typed in the preview";
   if (normalizedName === "browser_key") return "Pressed a key";
   if (normalizedName === "browser_scroll") return "Scrolled the preview";
+  if (normalizedName === "browser_game") {
+    const action = readString(record.action);
+    if (action === "pause") return "Paused the game";
+    if (action === "resume") return "Resumed the game";
+    if (action === "step") return "Stepped the game";
+    return "Read game state";
+  }
   if (normalizedName.includes("read") || normalizedName === "cat") {
     return targetPath ? `Read ${shortenToolText(targetPath)}` : "Read a file";
   }
