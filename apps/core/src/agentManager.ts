@@ -3,7 +3,6 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import {
-  PROVIDER_CATALOG_BY_ID,
   TokenUsage,
   type AgentEvent,
   type ExtensionUiResponse,
@@ -28,7 +27,6 @@ import {
 type EventSink = (appId: string, event: AgentEvent) => void;
 const MAX_JSONL_BUFFER_CHARS = 1024 * 1024;
 const STOP_TIMEOUT_MS = 2_000;
-type PiThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 interface PendingToolDetail {
   toolName: string;
   detail: string | undefined;
@@ -173,10 +171,6 @@ export class AgentManager {
       "--session-id",
       sessionIdFor(appId),
     ];
-    const thinkingLevel = piThinkingLevelFor(settings);
-    if (thinkingLevel) {
-      piArgs.push("--thinking", thinkingLevel);
-    }
     for (const extensionPath of this.piExtensionPaths) {
       if (!settings.webSearch.enabled && isWebSearchExtensionPath(extensionPath)) continue;
       piArgs.push("--extension", extensionPath);
@@ -305,6 +299,8 @@ export class AgentManager {
       case "message": {
         const message = event.message;
         if (isRecord(message) && message.role === "assistant") {
+          const errorMessage = readString(message.errorMessage);
+          if (errorMessage) this.onEvent(appId, { type: "error", message: errorMessage });
           this.enqueueToolDetails(appId, message);
           const tokenUsage = readAgentTokenUsageEvent(event);
           if (tokenUsage) {
@@ -315,8 +311,6 @@ export class AgentManager {
               usage: tokenUsage.usage,
             });
           }
-          const errorMessage = readString(message.errorMessage);
-          if (errorMessage) this.onEvent(appId, { type: "error", message: errorMessage });
         }
         break;
       }
@@ -477,11 +471,6 @@ function isSessionEntry(entry: string, sessionId: string): boolean {
 
 function isNotFound(err: unknown): boolean {
   return err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT";
-}
-
-function piThinkingLevelFor(settings: FelixSettings): PiThinkingLevel | null {
-  const provider = PROVIDER_CATALOG_BY_ID[settings.activeProvider];
-  return provider.modelSource === "opencode-registry" ? "off" : null;
 }
 
 function toolCallDetail(toolName: string, args: unknown): string | undefined {

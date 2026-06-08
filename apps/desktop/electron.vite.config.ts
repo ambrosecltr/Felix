@@ -1,13 +1,31 @@
+import { cpSync, existsSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
+import type { Plugin } from "vite";
 
 const webRoot = resolve(__dirname, "../web");
+const coreSkillPackagesRoot = resolve(__dirname, "../core/src/workspace/skill-packages");
+const bundledSkillPackagesRoot = resolve(__dirname, "dist/main/skill-packages");
+
+function copyCoreSkillPackages(): Plugin {
+  return {
+    name: "felix-copy-core-skill-packages",
+    closeBundle() {
+      if (!existsSync(coreSkillPackagesRoot)) {
+        throw new Error(`Missing Felix skill packages: ${coreSkillPackagesRoot}`);
+      }
+      rmSync(bundledSkillPackagesRoot, { recursive: true, force: true });
+      cpSync(coreSkillPackagesRoot, bundledSkillPackagesRoot, { recursive: true });
+    },
+  };
+}
 
 export default defineConfig({
   main: {
     plugins: [
+      copyCoreSkillPackages(),
       externalizeDepsPlugin({
         exclude: [
           "@felix/core",

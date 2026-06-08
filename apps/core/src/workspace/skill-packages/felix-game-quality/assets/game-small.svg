@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Game quality icon">
+  <rect width="64" height="64" rx="14" fill="#171717"/>
+  <path d="M17 39c2-11 6-16 15-16s13 5 15 16c.7 4-2.2 7-5.8 5.5l-5-2.1a10.5 10.5 0 0 0-8.4 0l-5 2.1C19.2 46 16.3 43 17 39Z" fill="#f5f5f5"/>
+  <path d="M24 31h10M29 26v10" stroke="#171717" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="42" cy="30" r="2.5" fill="#171717"/>
+  <circle cx="37" cy="35" r="2.5" fill="#171717"/>
+  <path d="m43 17 2.2 4.4 4.8.7-3.5 3.4.8 4.8L43 28l-4.3 2.3.8-4.8-3.5-3.4 4.8-.7L43 17Z" fill="#4ade80"/>
+</svg>

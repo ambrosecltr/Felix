@@ -6,6 +6,31 @@ const NEW_SKILLS = [
   ".pi/skills/felix-build-quality/SKILL.md",
   ".pi/skills/felix-robustness/SKILL.md",
   ".pi/skills/felix-assets/SKILL.md",
+  ".pi/skills/felix-game-engine/SKILL.md",
+  ".pi/skills/felix-game-quality/SKILL.md",
+  ".pi/skills/felix-frontend-design/SKILL.md",
+];
+
+const FULL_SKILL_PACKAGE_FILES = [
+  ".pi/skills/felix-game-engine/references/3d-web-games.md",
+  ".pi/skills/felix-game-engine/references/web-apis.md",
+  ".pi/skills/felix-game-quality/assets/game-small.svg",
+];
+
+const UNSUPPORTED_SKILL_CONTENT = [
+  "Playwright",
+  "playwright",
+  "Phaser",
+  "phaser",
+  "Haxe",
+  "HashLink",
+  "haxelib",
+  "GameBase",
+  "gameBase",
+  "CDN",
+  "npm install",
+  "npx ",
+  "git clone",
 ];
 
 describe("felix system prompt safety", () => {
@@ -71,5 +96,36 @@ describe("felix workspace skills", () => {
     expect(combined).not.toContain("phone width");
     expect(combined).not.toContain("phone layout");
     expect(combined).not.toContain("responsive from phone");
+  });
+
+  test("bundles full text skill packages, not just skill markdown", () => {
+    const paths = felixWorkspaceFiles("App", "advanced").map((file) => file.path);
+    for (const file of FULL_SKILL_PACKAGE_FILES) {
+      expect(paths).toContain(file);
+    }
+  });
+
+  test("game guidance preserves broad browser-native rendering choices", () => {
+    const gameSkill = felixWorkspaceFiles("App", "advanced").find(
+      (file) => file.path === ".pi/skills/felix-game-engine/SKILL.md",
+    );
+    expect(gameSkill?.content).toContain("DOM/SVG/Canvas/WebGL/CSS-3D/hybrid");
+    expect(gameSkill?.content).toContain("Do not default to a reduced 2D canvas version");
+  });
+
+  test("skill packages omit unsupported frameworks and setup tools", () => {
+    const files = felixWorkspaceFiles("App", "advanced");
+    const paths = files.map((file) => file.path);
+    const combined = files.map((file) => file.content).join("\n");
+
+    expect(paths).not.toContain(".pi/skills/felix-game-quality/scripts/web_game_playwright_client.js");
+    expect(paths).not.toContain(".pi/skills/felix-game-quality/references/action_payloads.json");
+    expect(paths).not.toContain(".pi/skills/felix-game-engine/assets/2d-platform-game.md");
+    expect(paths).not.toContain(".pi/skills/felix-game-engine/assets/2d-maze-game.md");
+    expect(paths).not.toContain(".pi/skills/felix-game-engine/assets/gameBase-template-repo.md");
+
+    for (const unsupported of UNSUPPORTED_SKILL_CONTENT) {
+      expect(combined).not.toContain(unsupported);
+    }
   });
 });

@@ -268,8 +268,10 @@ function mergeRegistryModels(existingModels: JsonRecord, generatedModels: JsonRe
 
 function mergeRegistryModel(existingModel: JsonRecord, generatedModel: JsonRecord): JsonRecord {
   return {
-    ...generatedModel,
     ...existingModel,
+    ...generatedModel,
+    limit: isRecord(existingModel.limit) ? existingModel.limit : generatedModel.limit,
+    cost: isRecord(existingModel.cost) ? existingModel.cost : generatedModel.cost,
     modalities: mergeRegistryModalities(
       isRecord(existingModel.modalities) ? existingModel.modalities : null,
       isRecord(generatedModel.modalities) ? generatedModel.modalities : null,

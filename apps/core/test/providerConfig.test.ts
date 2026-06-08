@@ -91,7 +91,7 @@ describe("provider config", () => {
     expect(activeModel?.input).toEqual(["text"]);
   });
 
-  test("does not downgrade OpenCode registry modalities when syncing extension credentials", async () => {
+  test("preserves OpenCode registry model details without enabling Felix-managed reasoning", async () => {
     const agentDir = await fs.mkdtemp(path.join(os.tmpdir(), "felix-agent-"));
     tempDirs.push(agentDir);
     const homeDir = await useTempHome();
@@ -141,7 +141,7 @@ describe("provider config", () => {
     expect(kimi?.modalities?.input).toEqual(["text", "image", "video"]);
     expect(kimi?.modalities?.output).toEqual(["text"]);
     expect(kimi?.limit?.context).toBe(262_144);
-    expect(kimi?.reasoning).toBe(true);
+    expect(kimi?.reasoning).toBe(false);
   });
 });
 
