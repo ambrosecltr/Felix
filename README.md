@@ -127,3 +127,7 @@ apps/desktop/release/mac-arm64/Felix.app/Contents/Resources/node/bin/node \
 ## About
 
 Felix is an app by [Personal Intelligence Project](https://personalintelligenceproject.com).
+
+## License
+
+[Apache License 2.0](LICENSE)
