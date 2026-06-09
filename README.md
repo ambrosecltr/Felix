@@ -123,3 +123,7 @@ apps/desktop/release/mac-arm64/Felix.app/Contents/Resources/node/bin/node \
   apps/desktop/release/mac-arm64/Felix.app/Contents/Resources/agent/node_modules/@earendil-works/pi-coding-agent/dist/cli.js \
   --version
 ```
+
+## About
+
+Felix is an app by [Personal Intelligence Project](https://personalintelligenceproject.com).
