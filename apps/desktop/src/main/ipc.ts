@@ -8,10 +8,8 @@ import {
   SettingsLockdownVerifyRequest,
 } from "@felix/contracts";
 import type { ExtensionUiResponse, FelixApiChannel } from "@felix/contracts";
-import type { MiniAppView, ViewBounds } from "./miniAppView.ts";
+import type { MiniAppView } from "./miniAppView.ts";
 import type { UpdateController } from "./updater.ts";
-
-const MAX_VIEW_BOUND = 100_000;
 
 export function registerIpc(
   manager: MiniAppManager,
@@ -67,18 +65,15 @@ export function registerIpc(
   handle("update.downloadAndInstall", () => updates.downloadAndInstall());
 
   // Mini app view control (not part of the typed FelixApi - main-only).
-  ipcMain.handle("miniAppView.show", (_e, arg: { appId: string; url: string; bounds: ViewBounds }) => {
+  ipcMain.handle("miniAppView.attach", (_e, arg: { appId: string; webContentsId: number }) => {
     const view = requireMiniAppView(getView);
     const appId = validateAppId(arg.appId);
-    const url = validateMiniAppUrl(arg.url);
-    const bounds = validateBounds(arg.bounds);
-    view.show(appId, url, bounds);
+    if (typeof arg.webContentsId !== "number" || !Number.isInteger(arg.webContentsId)) {
+      throw new Error("Invalid mini app preview id");
+    }
+    view.attach(appId, arg.webContentsId);
   });
-  ipcMain.handle("miniAppView.setBounds", (_e, bounds: ViewBounds) => {
-    const view = requireMiniAppView(getView);
-    view.setBounds(validateBounds(bounds));
-  });
-  ipcMain.handle("miniAppView.hide", () => getView()?.hide());
+  ipcMain.handle("miniAppView.detach", () => getView()?.detach());
   ipcMain.handle("miniAppView.reload", () => getView()?.reload());
 }
 
@@ -88,41 +83,9 @@ function requireMiniAppView(getView: () => MiniAppView | null): MiniAppView {
   return view;
 }
 
-function validateMiniAppUrl(rawUrl: string): string {
-  let url: URL;
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    throw new Error("Invalid mini app URL");
-  }
-  const allowedProtocol = url.protocol === "http:";
-  const allowedHost =
-    url.hostname === "127.0.0.1" ||
-    url.hostname === "localhost" ||
-    url.hostname === "::1";
-  if (!allowedProtocol || !allowedHost) {
-    throw new Error(`Mini app URL is not allowed: ${url.origin}`);
-  }
-  return url.toString();
-}
-
 function validateAppId(appId: string): string {
   if (typeof appId !== "string" || appId.trim().length === 0) {
     throw new Error("Invalid mini app id");
   }
   return appId;
-}
-
-function validateBounds(bounds: ViewBounds): ViewBounds {
-  return {
-    x: clampBound(bounds.x, 0),
-    y: clampBound(bounds.y, 0),
-    width: clampBound(bounds.width, 1),
-    height: clampBound(bounds.height, 1),
-  };
-}
-
-function clampBound(value: number, min: number): number {
-  if (!Number.isFinite(value)) throw new Error("Invalid mini app view bounds");
-  return Math.min(Math.max(value, min), MAX_VIEW_BOUND);
 }

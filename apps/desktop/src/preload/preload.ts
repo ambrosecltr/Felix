@@ -18,13 +18,6 @@ function markElectronRuntime(): void {
 
 markElectronRuntime();
 
-interface ViewBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
 function invoke<C extends FelixApiChannel>(
   channel: C,
   arg: FelixApiRequest<C>,
@@ -40,10 +33,9 @@ const api = {
     return () => ipcRenderer.off(PUSH_CHANNEL, handler);
   },
   view: {
-    show: (appId: string, url: string, bounds: ViewBounds) =>
-      ipcRenderer.invoke("miniAppView.show", { appId, url, bounds }),
-    setBounds: (bounds: ViewBounds) => ipcRenderer.invoke("miniAppView.setBounds", bounds),
-    hide: () => ipcRenderer.invoke("miniAppView.hide"),
+    attach: (appId: string, webContentsId: number) =>
+      ipcRenderer.invoke("miniAppView.attach", { appId, webContentsId }),
+    detach: () => ipcRenderer.invoke("miniAppView.detach"),
     reload: () => ipcRenderer.invoke("miniAppView.reload"),
   },
 };

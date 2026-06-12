@@ -11,7 +11,9 @@ export function App() {
     <div className="h-full w-full overflow-hidden">
       {view.name === "dashboard" && <Dashboard />}
       {view.name === "settings" && <Settings />}
-      {view.name === "miniApp" && <MiniAppScreen appId={view.appId} />}
+      {view.name === "miniApp" && (
+        <MiniAppScreen appId={view.appId} buildChatInitiallyOpen={view.buildChatInitiallyOpen} />
+      )}
       <ProfileNameDialog />
     </div>
   );

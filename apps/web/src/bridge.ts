@@ -5,13 +5,6 @@ import type {
   PushEvent,
 } from "@felix/contracts";
 
-export interface ViewBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
 interface FelixBridge {
   invoke<C extends FelixApiChannel>(
     channel: C,
@@ -19,9 +12,8 @@ interface FelixBridge {
   ): Promise<FelixApiResponse<C>>;
   onPush(listener: (event: PushEvent) => void): () => void;
   view: {
-    show(appId: string, url: string, bounds: ViewBounds): Promise<void>;
-    setBounds(bounds: ViewBounds): Promise<void>;
-    hide(): Promise<void>;
+    attach(appId: string, webContentsId: number): Promise<void>;
+    detach(): Promise<void>;
     reload(): Promise<void>;
   };
 }

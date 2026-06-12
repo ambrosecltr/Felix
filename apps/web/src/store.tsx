@@ -20,7 +20,7 @@ import { felix } from "./bridge.ts";
 
 export type View =
   | { name: "dashboard" }
-  | { name: "miniApp"; appId: string }
+  | { name: "miniApp"; appId: string; buildChatInitiallyOpen: boolean }
   | { name: "settings" };
 
 interface StoreValue {
@@ -278,7 +278,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const openApp = useCallback(
     async (appId: string) => {
-      setView({ name: "miniApp", appId });
+      setView({ name: "miniApp", appId, buildChatInitiallyOpen: false });
       const summary = await felix.invoke("miniApp.open", { appId });
       setStatuses((prev) => ({
         ...prev,
@@ -293,7 +293,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     async (prompt: string, attachments: ChatAttachmentInput[] = []) => {
       const summary = await felix.invoke("miniApp.create", { prompt });
       await refreshApps();
-      setView({ name: "miniApp", appId: summary.id });
+      setView({ name: "miniApp", appId: summary.id, buildChatInitiallyOpen: true });
       setStatuses((prev) => ({
         ...prev,
         [summary.id]: { status: summary.status, devUrl: summary.devUrl },

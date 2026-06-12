@@ -1,4 +1,4 @@
-import { type BrowserWindow, WebContentsView } from "electron";
+import { webContents, type BrowserWindow, type WebContents } from "electron";
 import type {
   BrowserPreviewToolRequest,
   BrowserPreviewToolResponse,
@@ -6,9 +6,7 @@ import type {
   ResizeImage,
 } from "@felix/core";
 
-export interface ViewBounds {
-  x: number;
-  y: number;
+interface ViewportSize {
   width: number;
   height: number;
 }
@@ -66,9 +64,10 @@ const DEFAULT_LOG_LIMIT = 30;
 const MAX_SNAPSHOT_TEXT = 5000;
 const MAX_GAME_STATE_TEXT = 4000;
 const MAX_CONTROL_LABEL = 140;
-const CURSOR_WIDTH = 34;
-const CURSOR_HOTSPOT_X = 13;
-const CURSOR_HOTSPOT_Y = 10;
+const CURSOR_WIDTH = 68;
+const CURSOR_HEIGHT = 84;
+const CURSOR_HOTSPOT_X = 26;
+const CURSOR_HOTSPOT_Y = 20;
 const MIN_CURSOR_DURATION_MS = 180;
 const MAX_CURSOR_DURATION_MS = 720;
 const SNAPSHOT_SCRIPT = `
@@ -272,90 +271,92 @@ function buildGameScript(action: GameAction, frames: number): string {
 `;
 }
 
+export function isAllowedMiniAppUrl(rawUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "http:") return false;
+  return (
+    url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "::1"
+  );
+}
+
 /**
- * Manages a single WebContentsView layered over the main window that shows
- * the currently open mini app's running dev server.
+ * Locks down every <webview> the renderer creates: no preload, no node
+ * integration, sandboxed, and only allowed to load/navigate to local mini
+ * app dev servers. Popups from the guest are denied.
+ */
+export function hardenMiniAppWebviews(window: BrowserWindow): void {
+  window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
+    delete webPreferences.preload;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+    if (typeof params.src === "string" && !isAllowedMiniAppUrl(params.src)) {
+      event.preventDefault();
+    }
+  });
+  window.webContents.on("did-attach-webview", (_event, guest) => {
+    guest.setWindowOpenHandler(() => ({ action: "deny" }));
+    guest.on("will-navigate", (event, url) => {
+      if (!isAllowedMiniAppUrl(url)) event.preventDefault();
+    });
+  });
+}
+
+/**
+ * Drives the renderer's <webview> guest that shows the currently open mini
+ * app's dev server. The guest lives in the DOM (so the renderer can layer
+ * chrome, tabs, and dialogs above it); this class only needs its WebContents
+ * for Felix's browser tools, log capture, and the agent cursor overlay.
  */
 export class MiniAppView {
-  private view: WebContentsView | null = null;
+  private guest: WebContents | null = null;
   private currentAppId: string | null = null;
-  private currentUrl: string | null = null;
-  private bounds: ViewBounds = { x: 0, y: 0, width: 0, height: 0 };
-  private visible = false;
   private agentActive = false;
   private cursorPosition: CursorPoint | null = null;
   private readonly logs: BrowserLogEntry[] = [];
+  private detachGuestEvents: (() => void) | null = null;
 
   constructor(
     private readonly window: BrowserWindow,
     private readonly options: MiniAppViewOptions,
   ) {}
 
-  private ensureView(): WebContentsView {
-    if (this.isWindowDestroyed()) throw new Error("Mini app window has been destroyed");
-    if (this.view) return this.view;
-    this.view = new WebContentsView({
-      webPreferences: {
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-      },
-    });
-    this.attachViewEvents(this.view);
-    return this.view;
+  attach(appId: string, webContentsId: number): void {
+    const guest = webContents.fromId(webContentsId);
+    if (!guest || guest.isDestroyed()) throw new Error("Mini app preview is not available.");
+    if (guest.getType() !== "webview" || guest.hostWebContents !== this.window.webContents) {
+      throw new Error("Refused to attach to a non-preview web contents.");
+    }
+    if (this.guest === guest && this.currentAppId === appId) return;
+    this.detach();
+    this.guest = guest;
+    this.currentAppId = appId;
+    this.agentActive = false;
+    this.cursorPosition = null;
+    this.logs.length = 0;
+    this.attachGuestEvents(guest);
   }
 
-  private isWindowDestroyed(): boolean {
-    return this.window.isDestroyed();
-  }
-
-  private isViewDestroyed(view: WebContentsView | null = this.view): boolean {
-    if (!view) return true;
-    try {
-      return view.webContents.isDestroyed();
-    } catch {
-      return true;
-    }
-  }
-
-  show(appId: string, url: string, bounds: ViewBounds): void {
-    if (this.isWindowDestroyed()) return;
-    const view = this.ensureView();
-    const appChanged = appId !== this.currentAppId;
-    if (appChanged) {
-      this.currentAppId = appId;
-      this.agentActive = false;
-      this.cursorPosition = null;
-      this.logs.length = 0;
-    }
-    if (!this.visible) {
-      this.window.contentView.addChildView(view);
-      this.visible = true;
-    }
-    this.setBounds(bounds);
-    if (appChanged || url !== this.currentUrl) {
-      this.currentUrl = url;
-      this.cursorPosition = null;
-      this.logs.length = 0;
-      void view.webContents.loadURL(url);
-    }
-  }
-
-  setBounds(bounds: ViewBounds): void {
-    this.bounds = bounds;
-    if (this.isViewDestroyed()) return;
-    this.view?.setBounds({
-      x: Math.round(bounds.x),
-      y: Math.round(bounds.y),
-      width: Math.round(bounds.width),
-      height: Math.round(bounds.height),
-    });
+  detach(): void {
+    this.detachGuestEvents?.();
+    this.detachGuestEvents = null;
+    this.guest = null;
+    this.currentAppId = null;
+    this.agentActive = false;
+    this.cursorPosition = null;
+    this.logs.length = 0;
   }
 
   reload(): void {
-    if (this.isViewDestroyed()) return;
+    const guest = this.guest;
+    if (!guest || guest.isDestroyed()) return;
     this.cursorPosition = null;
-    this.view?.webContents.reload();
+    guest.reload();
   }
 
   setAgentActive(appId: string, active: boolean): void {
@@ -393,34 +394,17 @@ export class MiniAppView {
     }
   }
 
-  hide(): void {
-    if (!this.view || !this.visible) return;
-    void this.hideCursor();
-    const view = this.view;
-    this.visible = false;
-    if (!this.isWindowDestroyed() && !this.isViewDestroyed(view)) {
-      this.window.contentView.removeChildView(view);
-    }
-  }
-
   destroy(): void {
-    const view = this.view;
-    this.agentActive = false;
-    this.hide();
-    if (view && !this.isViewDestroyed(view)) {
-      view.webContents.close({ waitForBeforeUnload: false });
-    }
-    this.view = null;
-    this.currentAppId = null;
-    this.currentUrl = null;
-    this.visible = false;
-    this.cursorPosition = null;
-    this.logs.length = 0;
+    this.detach();
   }
 
-  private attachViewEvents(view: WebContentsView): void {
-    const { webContents } = view;
-    webContents.on("console-message", (event) => {
+  private attachGuestEvents(guest: WebContents): void {
+    const onConsoleMessage = (event: {
+      level: BrowserLogEntry["level"];
+      message: string;
+      sourceId: string;
+      lineNumber: number;
+    }) => {
       this.addLog({
         level: event.level,
         message: event.message,
@@ -428,14 +412,25 @@ export class MiniAppView {
         lineNumber: event.lineNumber,
         timestamp: new Date().toISOString(),
       });
-    });
-    webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
+    };
+    const onDidStartNavigation = (
+      _event: unknown,
+      _url: string,
+      isInPlace: boolean,
+      isMainFrame: boolean,
+    ) => {
       if (isMainFrame && !isInPlace) {
         this.cursorPosition = null;
         this.logs.length = 0;
       }
-    });
-    webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    };
+    const onDidFailLoad = (
+      _event: unknown,
+      errorCode: number,
+      errorDescription: string,
+      validatedURL: string,
+      isMainFrame: boolean,
+    ) => {
       if (!isMainFrame) return;
       this.addLog({
         level: "error",
@@ -444,25 +439,42 @@ export class MiniAppView {
         lineNumber: 0,
         timestamp: new Date().toISOString(),
       });
-    });
-    webContents.on("render-process-gone", (_event, details) => {
+    };
+    const onRenderProcessGone = (_event: unknown, details: { reason: string }) => {
       this.addLog({
         level: "error",
         message: `Preview renderer stopped: ${details.reason}`,
-        sourceId: this.currentUrl ?? "",
+        sourceId: this.guest?.getURL() ?? "",
         lineNumber: 0,
         timestamp: new Date().toISOString(),
       });
-    });
+    };
+    const onDestroyed = () => {
+      if (this.guest === guest) this.detach();
+    };
+
+    guest.on("console-message", onConsoleMessage);
+    guest.on("did-start-navigation", onDidStartNavigation);
+    guest.on("did-fail-load", onDidFailLoad);
+    guest.on("render-process-gone", onRenderProcessGone);
+    guest.once("destroyed", onDestroyed);
+
+    this.detachGuestEvents = () => {
+      guest.off("destroyed", onDestroyed);
+      if (guest.isDestroyed()) return;
+      guest.off("console-message", onConsoleMessage);
+      guest.off("did-start-navigation", onDidStartNavigation);
+      guest.off("did-fail-load", onDidFailLoad);
+      guest.off("render-process-gone", onRenderProcessGone);
+    };
   }
 
-  private requireVisibleView(): WebContentsView {
-    if (!this.visible || this.isViewDestroyed()) {
+  private requireGuest(): WebContents {
+    const guest = this.guest;
+    if (!guest || guest.isDestroyed()) {
       throw new Error("Felix preview is not visible.");
     }
-    const view = this.view;
-    if (!view) throw new Error("Felix preview is not available.");
-    return view;
+    return guest;
   }
 
   private requireCurrentApp(appId: string): void {
@@ -472,28 +484,28 @@ export class MiniAppView {
   }
 
   private async snapshot(): Promise<BrowserPreviewToolResponse> {
-    const view = this.requireVisibleView();
+    const guest = this.requireGuest();
     await this.waitForLoad();
-    const raw = (await view.webContents.executeJavaScript(SNAPSHOT_SCRIPT, false)) as unknown;
+    const raw = (await guest.executeJavaScript(SNAPSHOT_SCRIPT, false)) as unknown;
     const snapshot = normalizeSnapshot(raw);
     return textResponse(formatSnapshot(snapshot, this.filteredLogs("warnings-and-errors", 12)));
   }
 
   private async game(params: Record<string, unknown>): Promise<BrowserPreviewToolResponse> {
-    const view = this.requireVisibleView();
+    const guest = this.requireGuest();
     await this.waitForLoad();
     const action = readGameAction(params.action);
     const frames = readGameFrames(params.frames);
-    const raw = (await view.webContents.executeJavaScript(buildGameScript(action, frames), false)) as unknown;
+    const raw = (await guest.executeJavaScript(buildGameScript(action, frames), false)) as unknown;
     const result = normalizeGameResult(raw);
     return textResponse(formatGameResult(action, frames, result));
   }
 
   private async screenshot(): Promise<BrowserPreviewToolResponse> {
-    const view = this.requireVisibleView();
+    const guest = this.requireGuest();
     await this.waitForLoad();
     const viewport = await this.readViewport();
-    const image = await view.webContents.capturePage();
+    const image = await guest.capturePage();
     const captureSize = image.getSize();
     const resized = await this.options.resizeImage(image.toPNG(), "image/png");
     if (!resized) {
@@ -527,29 +539,30 @@ export class MiniAppView {
   }
 
   private async reloadResponse(): Promise<BrowserPreviewToolResponse> {
-    const view = this.requireVisibleView();
+    const guest = this.requireGuest();
     this.cursorPosition = null;
-    view.webContents.reload();
+    guest.reload();
     await this.waitForLoad();
     return textResponse("Reloaded the live preview.");
   }
 
   private async click(params: Record<string, unknown>): Promise<BrowserPreviewToolResponse> {
-    const view = this.requireVisibleView();
-    const point = readPoint(params, this.bounds);
+    const guest = this.requireGuest();
+    const viewport = await this.readViewport();
+    const point = readPoint(params, viewport);
     const button = readMouseButton(params.button);
     const clickCount = readClickCount(params.clickCount);
-    this.focusPreview(view);
-    await this.animateCursorTo(point, true);
+    this.focusPreview(guest);
+    await this.animateCursorTo(point, viewport, true);
     const eventPoint = roundedPoint(point);
-    view.webContents.sendInputEvent({
+    guest.sendInputEvent({
       type: "mouseDown",
       ...eventPoint,
       button,
       clickCount,
     });
     await sleep(45 + Math.random() * 55);
-    view.webContents.sendInputEvent({
+    guest.sendInputEvent({
       type: "mouseUp",
       ...eventPoint,
       button,
@@ -559,35 +572,36 @@ export class MiniAppView {
   }
 
   private async typeText(params: Record<string, unknown>): Promise<BrowserPreviewToolResponse> {
-    const view = this.requireVisibleView();
+    const guest = this.requireGuest();
     const text = readRequiredString(params.text, "text").slice(0, 5000);
-    this.focusPreview(view);
-    await view.webContents.insertText(text);
+    this.focusPreview(guest);
+    await guest.insertText(text);
     return textResponse(`Typed ${text.length} character${text.length === 1 ? "" : "s"} into the preview.`);
   }
 
   private async key(params: Record<string, unknown>): Promise<BrowserPreviewToolResponse> {
-    const view = this.requireVisibleView();
+    const guest = this.requireGuest();
     const keyCode = readRequiredString(params.key, "key").slice(0, 40);
-    this.focusPreview(view);
-    view.webContents.sendInputEvent({ type: "rawKeyDown", keyCode });
+    this.focusPreview(guest);
+    guest.sendInputEvent({ type: "rawKeyDown", keyCode });
     await sleep(20 + Math.random() * 35);
-    view.webContents.sendInputEvent({ type: "keyUp", keyCode });
+    guest.sendInputEvent({ type: "keyUp", keyCode });
     return textResponse(`Pressed ${keyCode}.`);
   }
 
   private async scroll(params: Record<string, unknown>): Promise<BrowserPreviewToolResponse> {
-    const view = this.requireVisibleView();
-    const point = readOptionalPoint(params, this.bounds) ?? {
-      x: Math.max(0, this.bounds.width / 2),
-      y: Math.max(0, this.bounds.height / 2),
+    const guest = this.requireGuest();
+    const viewport = await this.readViewport();
+    const point = readOptionalPoint(params, viewport) ?? {
+      x: Math.max(0, viewport.width / 2),
+      y: Math.max(0, viewport.height / 2),
     };
     const deltaX = readOptionalNumber(params.deltaX, 0);
     const deltaY = readOptionalNumber(params.deltaY, 0);
     if (deltaX === 0 && deltaY === 0) throw new Error("Scroll requires deltaX or deltaY.");
-    this.focusPreview(view);
-    await this.animateCursorTo(point, true);
-    view.webContents.sendInputEvent({
+    this.focusPreview(guest);
+    await this.animateCursorTo(point, viewport, true);
+    guest.sendInputEvent({
       type: "mouseWheel",
       ...roundedPoint(point),
       deltaX,
@@ -599,22 +613,22 @@ export class MiniAppView {
   }
 
   private async moveCursor(params: Record<string, unknown>): Promise<BrowserPreviewToolResponse> {
-    const view = this.requireVisibleView();
-    const point = readPoint(params, this.bounds);
-    this.focusPreview(view);
-    await this.animateCursorTo(point, true);
+    const guest = this.requireGuest();
+    const viewport = await this.readViewport();
+    const point = readPoint(params, viewport);
+    this.focusPreview(guest);
+    await this.animateCursorTo(point, viewport, true);
     return textResponse(`Moved Felix's cursor to ${Math.round(point.x)}, ${Math.round(point.y)}.`);
   }
 
-  private focusPreview(view: WebContentsView): void {
-    if (!this.isWindowDestroyed()) this.window.focus();
-    view.webContents.focus();
+  private focusPreview(guest: WebContents): void {
+    if (!this.window.isDestroyed()) this.window.focus();
+    guest.focus();
   }
 
   private async waitForLoad(timeoutMs = 5000): Promise<void> {
-    const view = this.requireVisibleView();
-    const { webContents } = view;
-    if (!webContents.isLoadingMainFrame()) return;
+    const guest = this.requireGuest();
+    if (!guest.isLoadingMainFrame()) return;
     await new Promise<void>((resolve) => {
       let done = false;
       let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -622,15 +636,15 @@ export class MiniAppView {
         if (done) return;
         done = true;
         if (timeout) clearTimeout(timeout);
-        webContents.off("did-finish-load", finish);
-        webContents.off("did-stop-loading", finish);
-        webContents.off("did-fail-load", finish);
+        guest.off("did-finish-load", finish);
+        guest.off("did-stop-loading", finish);
+        guest.off("did-fail-load", finish);
         resolve();
       };
       timeout = setTimeout(finish, timeoutMs);
-      webContents.once("did-finish-load", finish);
-      webContents.once("did-stop-loading", finish);
-      webContents.once("did-fail-load", finish);
+      guest.once("did-finish-load", finish);
+      guest.once("did-stop-loading", finish);
+      guest.once("did-fail-load", finish);
     });
   }
 
@@ -653,22 +667,26 @@ export class MiniAppView {
   }
 
   private async readViewport(): Promise<SnapshotData["viewport"]> {
-    const view = this.requireVisibleView();
-    const raw = (await view.webContents.executeJavaScript(
+    const guest = this.requireGuest();
+    const raw = (await guest.executeJavaScript(
       "({ width: window.innerWidth, height: window.innerHeight, devicePixelRatio: window.devicePixelRatio || 1 })",
       false,
     )) as unknown;
     return normalizeViewport(raw);
   }
 
-  private async animateCursorTo(point: CursorPoint, dispatchMouseMove: boolean): Promise<void> {
-    const view = this.requireVisibleView();
-    const start = this.cursorPosition ?? initialCursorPoint(point, this.bounds);
+  private async animateCursorTo(
+    point: CursorPoint,
+    viewport: ViewportSize,
+    dispatchMouseMove: boolean,
+  ): Promise<void> {
+    const guest = this.requireGuest();
+    const start = this.cursorPosition ?? initialCursorPoint(point, viewport);
     const path = humanCursorPath(start, point);
     let previous = start;
 
     if (this.agentActive) {
-      await this.ensureCursorOverlay(view);
+      await this.ensureCursorOverlay(guest);
       await this.setCursorOverlayPosition(start, true);
     }
 
@@ -685,7 +703,7 @@ export class MiniAppView {
         await this.setCursorOverlayPosition(current, true);
       }
       if (dispatchMouseMove) {
-        view.webContents.sendInputEvent({
+        guest.sendInputEvent({
           type: "mouseMove",
           ...roundedPoint(current),
           movementX: Math.round(current.x - previous.x),
@@ -698,10 +716,10 @@ export class MiniAppView {
     this.cursorPosition = point;
   }
 
-  private async ensureCursorOverlay(view: WebContentsView): Promise<void> {
+  private async ensureCursorOverlay(guest: WebContents): Promise<void> {
     const imageDataUrl = this.options.cursorImageDataUrl;
     if (!imageDataUrl) return;
-    await view.webContents
+    await guest
       .executeJavaScript(
         `(() => {
           const id = "felix-agent-cursor";
@@ -715,7 +733,7 @@ export class MiniAppView {
               left: "0",
               top: "0",
               width: "${CURSOR_WIDTH}px",
-              height: "42px",
+              height: "${CURSOR_HEIGHT}px",
               pointerEvents: "none",
               zIndex: "2147483647",
               opacity: "0",
@@ -744,10 +762,12 @@ export class MiniAppView {
   }
 
   private async setCursorOverlayPosition(point: CursorPoint, visible: boolean): Promise<void> {
-    if (!this.options.cursorImageDataUrl || this.isViewDestroyed()) return;
+    if (!this.options.cursorImageDataUrl) return;
+    const guest = this.guest;
+    if (!guest || guest.isDestroyed()) return;
     const x = Math.round(point.x - CURSOR_HOTSPOT_X);
     const y = Math.round(point.y - CURSOR_HOTSPOT_Y);
-    await this.view?.webContents
+    await guest
       .executeJavaScript(
         `(() => {
           const root = document.getElementById("felix-agent-cursor");
@@ -942,16 +962,19 @@ function readLimit(value: unknown, fallback: number, max: number): number {
   return Math.round(clampNumber(value, 1, max));
 }
 
-function readPoint(params: Record<string, unknown>, bounds: ViewBounds): CursorPoint {
+function readPoint(params: Record<string, unknown>, viewport: ViewportSize): CursorPoint {
   return {
-    x: readCoordinate(params.x, "x", bounds.width),
-    y: readCoordinate(params.y, "y", bounds.height),
+    x: readCoordinate(params.x, "x", viewport.width),
+    y: readCoordinate(params.y, "y", viewport.height),
   };
 }
 
-function readOptionalPoint(params: Record<string, unknown>, bounds: ViewBounds): CursorPoint | null {
+function readOptionalPoint(
+  params: Record<string, unknown>,
+  viewport: ViewportSize,
+): CursorPoint | null {
   if (params.x === undefined && params.y === undefined) return null;
-  return readPoint(params, bounds);
+  return readPoint(params, viewport);
 }
 
 function readCoordinate(value: unknown, name: string, max: number): number {
@@ -1004,10 +1027,10 @@ function roundedPoint(point: CursorPoint): { x: number; y: number } {
   return { x: Math.round(point.x), y: Math.round(point.y) };
 }
 
-function initialCursorPoint(target: CursorPoint, bounds: ViewBounds): CursorPoint {
+function initialCursorPoint(target: CursorPoint, viewport: ViewportSize): CursorPoint {
   return {
-    x: clampNumber(target.x - 90 + Math.random() * 50, 0, bounds.width),
-    y: clampNumber(target.y - 55 + Math.random() * 60, 0, bounds.height),
+    x: clampNumber(target.x - 90 + Math.random() * 50, 0, viewport.width),
+    y: clampNumber(target.y - 55 + Math.random() * 60, 0, viewport.height),
   };
 }
 

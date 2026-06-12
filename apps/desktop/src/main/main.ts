@@ -7,7 +7,7 @@ import { PUSH_CHANNEL, type PushEvent } from "@felix/contracts";
 import { resizeImageForModel } from "./imageResize.ts";
 import { registerIpc } from "./ipc.ts";
 import { applyMacosWindowChrome } from "./macosWindowChrome.ts";
-import { MiniAppView } from "./miniAppView.ts";
+import { MiniAppView, hardenMiniAppWebviews } from "./miniAppView.ts";
 import { UpdateController } from "./updater.ts";
 import { persistWindowState, readWindowState } from "./windowState.ts";
 
@@ -53,10 +53,12 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webviewTag: true,
     },
   });
   applyMacosWindowChrome(window, appResourcesDir);
   persistWindowState(window);
+  hardenMiniAppWebviews(window);
   mainWindow = window;
   const view = new MiniAppView(window, {
     resizeImage: resizeImageForModel,
