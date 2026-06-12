@@ -4,6 +4,7 @@ import {
   forwardRef,
   useRef,
   useEffect,
+  useLayoutEffect,
   useState,
   useCallback,
   createContext,
@@ -35,6 +36,7 @@ interface SelectContextValue {
   disabled: boolean;
   triggerRef: React.RefObject<HTMLButtonElement | null>;
   labelMap: React.MutableRefObject<Map<string, string>>;
+  registerLabel: (value: string, label: string) => () => void;
 }
 
 const SelectContext = createContext<SelectContextValue | null>(null);
@@ -83,6 +85,7 @@ function Select({
   const currentValue = value !== undefined ? value : internalValue;
   const triggerRef = useRef<HTMLButtonElement>(null);
   const labelMap = useRef(new Map<string, string>());
+  const [, setLabelVersion] = useState(0);
 
   const onChange = useCallback(
     (v: string) => {
@@ -94,6 +97,20 @@ function Select({
     [value, onValueChange]
   );
 
+  const registerLabel = useCallback((itemValue: string, label: string) => {
+    if (labelMap.current.get(itemValue) !== label) {
+      labelMap.current.set(itemValue, label);
+      setLabelVersion((version) => version + 1);
+    }
+
+    return () => {
+      if (labelMap.current.get(itemValue) === label) {
+        labelMap.current.delete(itemValue);
+        setLabelVersion((version) => version + 1);
+      }
+    };
+  }, []);
+
   return (
     <SelectContext.Provider
       value={{
@@ -104,6 +121,7 @@ function Select({
         disabled,
         triggerRef,
         labelMap,
+        registerLabel,
       }}
     >
       {children}
@@ -719,22 +737,29 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
     },
     ref
   ) => {
-    const selectCtx = useSelectContext();
+    const {
+      value: selectedValue,
+      onChange,
+      registerLabel,
+    } = useSelectContext();
     const contentCtx = useContext(SelectContentContext);
     const internalRef = useRef<HTMLDivElement>(null);
     const shape = useShape();
     const hasMounted = useRef(false);
+    const label =
+      typeof children === "string" || typeof children === "number"
+        ? String(children)
+        : null;
 
     useEffect(() => {
       hasMounted.current = true;
     }, []);
 
-    // Register label with root context
-    useEffect(() => {
-      if (typeof children === "string") {
-        selectCtx.labelMap.current.set(value, children);
-      }
-    }, [value, children, selectCtx.labelMap]);
+    // Register before paint so triggers show friendly labels on first render.
+    useLayoutEffect(() => {
+      if (label === null) return;
+      return registerLabel(value, label);
+    }, [value, label, registerLabel]);
 
     // Register with proximity hover (only when content context exists = open)
     useEffect(() => {
@@ -743,7 +768,7 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
     }, [index, contentCtx]);
 
     const isActive = contentCtx?.activeIndex === index;
-    const isChecked = selectCtx.value === value;
+    const isChecked = selectedValue === value;
     const skipAnimation = !hasMounted.current;
 
     return (
@@ -762,17 +787,17 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
         data-disabled={disabled || undefined}
         role="option"
         aria-selected={isChecked}
-        aria-label={typeof children === "string" ? children : undefined}
+        aria-label={label ?? undefined}
         tabIndex={
           isChecked ? 0 : index === (contentCtx?.checkedIndex ?? 0) ? 0 : -1
         }
         onClick={() => {
-          if (!disabled) selectCtx.onChange(value);
+          if (!disabled) onChange(value);
         }}
         onKeyDown={(e) => {
           if ((e.key === "Enter" || e.key === " ") && !disabled) {
             e.preventDefault();
-            selectCtx.onChange(value);
+            onChange(value);
           }
         }}
         className={cn(

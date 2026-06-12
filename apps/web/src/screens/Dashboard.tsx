@@ -9,7 +9,7 @@ import {
 } from "react";
 import type { MiniAppSummary } from "@felix/contracts";
 import { felix } from "../bridge.ts";
-import { useStore } from "../store.tsx";
+import { type DashboardTab, useStore } from "../store.tsx";
 import { filesToChatAttachments } from "../lib/message-attachments.ts";
 import { type IconComponent, useIcon } from "../lib/icon-context.tsx";
 import { cn } from "../lib/utils.ts";
@@ -29,8 +29,6 @@ import { InputMessage } from "../components/ui/input-message.tsx";
 import { MyFelixPanel } from "./MyFelix.tsx";
 import felixIcon from "../assets/felix-icon.svg";
 
-type DashboardTab = "apps" | "build" | "profile";
-
 const DASHBOARD_TABS: Array<{ value: DashboardTab; label: string }> = [
   { value: "apps", label: "My apps" },
   { value: "build", label: "Build with Felix" },
@@ -39,8 +37,7 @@ const DASHBOARD_TABS: Array<{ value: DashboardTab; label: string }> = [
 const PIN_LENGTH = 4;
 
 export function Dashboard() {
-  const { apps, createApp, openApp, goSettings } = useStore();
-  const [activeTab, setActiveTab] = useState<DashboardTab>("build");
+  const { apps, createApp, openApp, goSettings, dashboardTab, setDashboardTab } = useStore();
   const [prompt, setPrompt] = useState("");
   const [promptFiles, setPromptFiles] = useState<File[]>([]);
   const [creating, setCreating] = useState(false);
@@ -135,8 +132,8 @@ export function Dashboard() {
         border={false}
         center={
           <DashboardTabs
-            value={activeTab}
-            onValueChange={setActiveTab}
+            value={dashboardTab}
+            onValueChange={setDashboardTab}
             reducedMotion={shouldReduceMotion}
           />
         }
@@ -156,11 +153,11 @@ export function Dashboard() {
 
       <main className="min-h-0 flex-1 overflow-hidden">
         <AnimatePresence mode="wait" initial={false}>
-          {activeTab === "apps" ? (
+          {dashboardTab === "apps" ? (
             <MotionPanel key="apps" reducedMotion={shouldReduceMotion}>
-              <AppsPanel apps={apps} openApp={openApp} onBuild={() => setActiveTab("build")} />
+              <AppsPanel apps={apps} openApp={openApp} onBuild={() => setDashboardTab("build")} />
             </MotionPanel>
-          ) : activeTab === "build" ? (
+          ) : dashboardTab === "build" ? (
             <MotionPanel key="build" reducedMotion={shouldReduceMotion}>
               <BuildPanel
                 prompt={prompt}

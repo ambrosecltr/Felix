@@ -23,8 +23,11 @@ export type View =
   | { name: "miniApp"; appId: string; buildChatInitiallyOpen: boolean }
   | { name: "settings" };
 
+export type DashboardTab = "apps" | "build" | "profile";
+
 interface StoreValue {
   view: View;
+  dashboardTab: DashboardTab;
   apps: MiniAppSummary[];
   statuses: Record<string, { status: MiniAppStatus; devUrl: string | null }>;
   chats: Record<string, ChatTurn[]>;
@@ -32,6 +35,7 @@ interface StoreValue {
   uiRequests: Record<string, UiRequest[]>;
   profileOverview: ProfileOverview | null;
   profileLoading: boolean;
+  setDashboardTab: (tab: DashboardTab) => void;
   goDashboard: () => void;
   goSettings: () => void;
   refreshProfile: () => Promise<void>;
@@ -54,6 +58,7 @@ const StoreContext = createContext<StoreValue | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [view, setView] = useState<View>({ name: "dashboard" });
+  const [dashboardTab, setDashboardTab] = useState<DashboardTab>("build");
   const [apps, setApps] = useState<MiniAppSummary[]>([]);
   const [statuses, setStatuses] = useState<StoreValue["statuses"]>({});
   const [chats, setChats] = useState<Record<string, ChatTurn[]>>({});
@@ -385,6 +390,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const value = useMemo<StoreValue>(
     () => ({
       view,
+      dashboardTab,
       apps,
       statuses,
       chats,
@@ -392,6 +398,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       uiRequests,
       profileOverview,
       profileLoading,
+      setDashboardTab,
       goDashboard: () => setView({ name: "dashboard" }),
       goSettings: () => setView({ name: "settings" }),
       refreshProfile,
@@ -406,6 +413,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }),
     [
       view,
+      dashboardTab,
       apps,
       statuses,
       chats,

@@ -5,6 +5,7 @@ import {
   isValidElement,
   type ButtonHTMLAttributes,
   type Ref,
+  type ReactNode,
 } from "react";
 import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -14,8 +15,8 @@ import { useShape } from "@/lib/shape-context";
 
 const buttonVariants = cva(
   [
-    "group relative isolate inline-flex items-center justify-center outline-none cursor-pointer",
-    "text-box-trim-both text-box-edge-cap-alphabetic",
+    "group relative isolate inline-grid place-items-center overflow-hidden outline-none cursor-pointer",
+    "leading-none",
     "transition-colors duration-80",
     "disabled:opacity-50 disabled:pointer-events-none",
     "focus-visible:ring-1 focus-visible:ring-[#6B97FF]",
@@ -133,60 +134,86 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
             bgClass,
           )}
         />
-        <span className="relative inline-flex items-center justify-center gap-[inherit]">
-          {loading ? (
-            <>
-              <span className="flex items-center justify-center gap-[inherit] opacity-0">
-                {LeadingIcon && !isIconOnly && <LeadingIcon size={iconSize} strokeWidth={2} />}
-                {children}
-                {TrailingIcon && !isIconOnly && <TrailingIcon size={iconSize} strokeWidth={2} />}
-              </span>
-              <span className="absolute inset-0 flex items-center justify-center">
-                <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M 12 12 C 14 8.5 19 8.5 19 12 C 19 15.5 14 15.5 12 12 C 10 8.5 5 8.5 5 12 C 5 15.5 10 15.5 12 12 Z"
-                    stroke="currentColor"
-                    strokeWidth="1.125"
-                    strokeLinecap="round"
-                    pathLength="100"
-                    style={{
-                      strokeDasharray: "15 85",
-                      animation: "spinner-move 2s linear infinite, spinner-dash 4s ease-in-out infinite",
-                    }}
-                  />
-                </svg>
-              </span>
-            </>
-          ) : isIconOnly ? (
-            <span className="[&_svg]:stroke-[1.5] [&_svg]:transition-[stroke-width] [&_svg]:duration-80 group-hover:[&_svg]:stroke-[2]">
+        <span
+          className={cn(
+            "relative z-10 col-start-1 row-start-1 inline-flex items-center justify-center gap-[inherit]",
+            loading && "opacity-0",
+          )}
+        >
+          {isIconOnly ? (
+            <span className="inline-flex items-center justify-center leading-none [&_svg]:block [&_svg]:stroke-[1.5] [&_svg]:transition-[stroke-width] [&_svg]:duration-80 group-hover:[&_svg]:stroke-[2]">
               {children}
             </span>
           ) : (
             <>
               {LeadingIcon && (
-                <LeadingIcon
-                  size={iconSize}
-                  strokeWidth={1.5}
-                  className="transition-[stroke-width] duration-80 group-hover:stroke-[2]"
-                />
+                <ButtonIconFrame className="-translate-y-px">
+                  <LeadingIcon
+                    size={iconSize}
+                    strokeWidth={1.5}
+                    className="block transition-[stroke-width] duration-80 group-hover:stroke-[2]"
+                  />
+                </ButtonIconFrame>
               )}
-              <span>{children}</span>
+              <span className="text-box-trim-both text-box-edge-cap-alphabetic">
+                {children}
+              </span>
               {TrailingIcon && (
-                <TrailingIcon
-                  size={iconSize}
-                  strokeWidth={1.5}
-                  className="transition-[stroke-width] duration-80 group-hover:stroke-[2]"
-                />
+                <ButtonIconFrame className="-translate-y-px">
+                  <TrailingIcon
+                    size={iconSize}
+                    strokeWidth={1.5}
+                    className="block transition-[stroke-width] duration-80 group-hover:stroke-[2]"
+                  />
+                </ButtonIconFrame>
               )}
             </>
           )}
         </span>
+        {loading && (
+          <span className="relative z-10 col-start-1 row-start-1 inline-flex items-center justify-center">
+            <svg className="block h-8 w-8" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M 12 12 C 14 8.5 19 8.5 19 12 C 19 15.5 14 15.5 12 12 C 10 8.5 5 8.5 5 12 C 5 15.5 10 15.5 12 12 Z"
+                stroke="currentColor"
+                strokeWidth="1.125"
+                strokeLinecap="round"
+                pathLength="100"
+                style={{
+                  strokeDasharray: "15 85",
+                  animation:
+                    "spinner-move 2s linear infinite, spinner-dash 4s ease-in-out infinite",
+                }}
+              />
+            </svg>
+          </span>
+        )}
       </ButtonPrimitive>
     );
   },
 );
 
 Button.displayName = "Button";
+
+function ButtonIconFrame({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "inline-flex shrink-0 items-center justify-center leading-none",
+        className,
+      )}
+    >
+      {children}
+    </span>
+  );
+}
 
 export { Button, buttonVariants };
 export type { ButtonProps };
