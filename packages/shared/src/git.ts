@@ -156,6 +156,7 @@ async function walkWorktree(cwd: string, relativeDir: string, files: string[]): 
   for (const entry of entries) {
     if (entry.name === ".git") continue;
     const filepath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
+    if (isFelixTransientFile(filepath)) continue;
     if (await isIgnored(cwd, filepath)) continue;
     if (entry.isDirectory()) {
       await walkWorktree(cwd, filepath, files);
@@ -171,6 +172,10 @@ async function isIgnored(cwd: string, filepath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function isFelixTransientFile(filepath: string): boolean {
+  return filepath.startsWith(".felix/.") && filepath.endsWith(".tmp");
 }
 
 async function checkpointRecords(cwd: string): Promise<CheckpointRecord[]> {

@@ -32,6 +32,20 @@ describe("git checkpoints", () => {
     ]);
   });
 
+  test("ignores Felix atomic-write temp files in snapshots", async () => {
+    const dir = await tempRepo();
+    await writeFile(dir, "app.txt", "first");
+    await writeFile(dir, ".felix/.chat.json.123.456.tmp", "temporary");
+
+    await checkpoints.initRepo(dir);
+    const first = await checkpoints.checkpoint(dir, "First version", "system");
+    await fs.rm(path.join(dir, ".felix/.chat.json.123.456.tmp"));
+    const unchanged = await checkpoints.checkpoint(dir, "No changes", "kid");
+
+    expect(first).toMatch(/^[0-9a-f]{40}$/);
+    expect(unchanged).toBeNull();
+  });
+
   test("restores tracked changes while preserving ignored local data", async () => {
     const dir = await tempRepo();
     await writeFile(dir, ".gitignore", "node_modules/\nfelix.db\n");

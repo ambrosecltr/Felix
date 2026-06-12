@@ -31,6 +31,7 @@ import {
 type EventSink = (appId: string, event: AgentEvent) => void;
 const MAX_JSONL_BUFFER_CHARS = 1024 * 1024;
 const STOP_TIMEOUT_MS = 2_000;
+const ABORT_TIMEOUT_MS = 5_000;
 interface PendingToolDetail {
   toolName: string;
   detail: string | undefined;
@@ -64,6 +65,9 @@ interface RunningAgent {
   process: ChildProcess;
   send: (cmd: object) => void;
   streaming: boolean;
+  stopping: boolean;
+  abortTimer: ReturnType<typeof setTimeout> | null;
+  lastTerminalError: string | null;
   cleanup: () => void;
 }
 
@@ -77,6 +81,12 @@ function attachJsonlReader(
 ): void {
   const decoder = new StringDecoder("utf8");
   let buffer = "";
+  const flushBufferedLine = () => {
+    buffer += decoder.end();
+    const line = buffer.endsWith("\r") ? buffer.slice(0, -1) : buffer;
+    buffer = "";
+    if (line.trim().length > 0) onLine(line);
+  };
   stream.on("data", (chunk: Buffer | string) => {
     buffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
     if (buffer.length > MAX_JSONL_BUFFER_CHARS) {
@@ -92,6 +102,7 @@ function attachJsonlReader(
       if (line.trim().length > 0) onLine(line);
     }
   });
+  stream.once("end", flushBufferedLine);
 }
 
 export class AgentManager {
@@ -252,6 +263,9 @@ export class AgentManager {
       process: child,
       send,
       streaming: false,
+      stopping: false,
+      abortTimer: null,
+      lastTerminalError: null,
       cleanup,
     };
     this.agents.set(appId, running);
@@ -271,6 +285,9 @@ export class AgentManager {
     // Without these handlers, a spawn failure or broken stdin pipe emits an
     // unhandled "error" event that crashes the whole Electron main process.
     child.on("error", (err) => {
+      running.streaming = false;
+      clearAbortTimer(running);
+      this.browserPreview?.setAgentActive?.(appId, false);
       this.onEvent(appId, { type: "error", message: `Felix couldn't start: ${err.message}` });
       cleanup();
       this.agents.delete(appId);
@@ -281,14 +298,25 @@ export class AgentManager {
     });
 
     child.once("exit", (code) => {
+      const wasStreaming = running.streaming;
+      running.streaming = false;
+      clearAbortTimer(running);
+      this.browserPreview?.setAgentActive?.(appId, false);
       // Report any unexpected exit, including a startup crash (e.g. a missing
       // dependency) that happens before streaming begins — otherwise the chat
       // would just sit silent with no Felix response.
-      if (code !== null && code !== 0) {
-        this.onEvent(appId, {
-          type: "error",
-          message: `Felix stopped unexpectedly.${stderr ? ` (${stderr.slice(-200)})` : ""}`,
-        });
+      if (!running.stopping && code !== null && code !== 0) {
+        this.emitTerminalError(
+          appId,
+          running,
+          `Felix stopped unexpectedly.${stderr ? ` (${stderr.slice(-200)})` : ""}`,
+        );
+      } else if (!running.stopping && wasStreaming && !running.lastTerminalError) {
+        this.emitTerminalError(
+          appId,
+          running,
+          "Felix stopped before it could finish. Please try again.",
+        );
       }
       cleanup();
       this.agents.delete(appId);
@@ -314,7 +342,11 @@ export class AgentManager {
         this.onEvent(appId, { type: "agent_start" });
         break;
       case "agent_end":
-        if (running) running.streaming = false;
+        this.handleAssistantTerminalMessage(appId, running, latestAssistantMessage(event.messages));
+        if (running) {
+          running.streaming = false;
+          clearAbortTimer(running);
+        }
         this.browserPreview?.setAgentActive?.(appId, false);
         this.onEvent(appId, { type: "agent_end" });
         break;
@@ -323,6 +355,8 @@ export class AgentManager {
         break;
       case "message_end":
         this.onEvent(appId, { type: "message_end" });
+        break;
+      case "turn_end":
         break;
       case "message_update": {
         const delta = event.assistantMessageEvent as Record<string, unknown> | undefined;
@@ -334,8 +368,6 @@ export class AgentManager {
       case "message": {
         const message = event.message;
         if (isRecord(message) && message.role === "assistant") {
-          const errorMessage = readString(message.errorMessage);
-          if (errorMessage) this.onEvent(appId, { type: "error", message: errorMessage });
           this.enqueueToolDetails(appId, message);
           const tokenUsage = readAgentTokenUsageEvent(event);
           if (tokenUsage) {
@@ -349,6 +381,24 @@ export class AgentManager {
         }
         break;
       }
+      case "auto_retry_start":
+        if (running) running.streaming = true;
+        this.browserPreview?.setAgentActive?.(appId, true);
+        break;
+      case "auto_retry_end":
+        if (event.success === false) {
+          if (running) {
+            running.streaming = false;
+            clearAbortTimer(running);
+          }
+          this.browserPreview?.setAgentActive?.(appId, false);
+          this.emitTerminalError(
+            appId,
+            running,
+            readString(event.finalError) ?? "Felix hit an error before it could finish.",
+          );
+        }
+        break;
       case "tool_execution_start": {
         const toolName = String(event.toolName ?? "tool");
         this.onEvent(appId, {
@@ -413,15 +463,35 @@ export class AgentManager {
     return this.agents.get(appId)?.streaming ?? false;
   }
 
+  isRunning(appId: string): boolean {
+    return this.agents.has(appId);
+  }
+
   prompt(appId: string, text: string, images: AgentImageContent[] = []): void {
     const running = this.agents.get(appId);
     if (!running) return;
-    running.send(buildPromptCommand(text, images, running.streaming));
+    const shouldSteer = running.streaming;
+    running.send(buildPromptCommand(text, images, shouldSteer));
+    running.streaming = true;
+    this.browserPreview?.setAgentActive?.(appId, true);
   }
 
   abort(appId: string): void {
+    const running = this.agents.get(appId);
+    if (!running) return;
     this.browserPreview?.setAgentActive?.(appId, false);
-    this.agents.get(appId)?.send({ type: "abort" });
+    running.send({ type: "abort" });
+    if (running.abortTimer) return;
+    running.abortTimer = setTimeout(() => {
+      const current = this.agents.get(appId);
+      if (current !== running || !current.streaming) return;
+      this.emitTerminalError(
+        appId,
+        running,
+        "Felix stopped this turn. Send another message when you're ready.",
+      );
+      void this.stop(appId);
+    }, ABORT_TIMEOUT_MS);
   }
 
   async clearSession(appId: string, appDir: string): Promise<void> {
@@ -451,6 +521,9 @@ export class AgentManager {
   async stop(appId: string): Promise<void> {
     const running = this.agents.get(appId);
     if (!running) return;
+    running.stopping = true;
+    running.streaming = false;
+    clearAbortTimer(running);
     this.browserPreview?.setAgentActive?.(appId, false);
     const stopped = waitForExit(running.process, STOP_TIMEOUT_MS);
     running.process.kill("SIGTERM");
@@ -463,6 +536,32 @@ export class AgentManager {
   stopAll(): void {
     for (const id of [...this.agents.keys()]) void this.stop(id);
   }
+
+  private handleAssistantTerminalMessage(
+    appId: string,
+    running: RunningAgent | undefined,
+    message: unknown,
+  ): void {
+    const terminalError = readAssistantTerminalError(message);
+    if (!terminalError) return;
+    this.emitTerminalError(appId, running, terminalError);
+  }
+
+  private emitTerminalError(
+    appId: string,
+    running: RunningAgent | undefined,
+    message: string,
+  ): void {
+    if (running?.lastTerminalError === message) return;
+    if (running) running.lastTerminalError = message;
+    this.onEvent(appId, { type: "error", message });
+  }
+}
+
+function clearAbortTimer(running: RunningAgent): void {
+  if (!running.abortTimer) return;
+  clearTimeout(running.abortTimer);
+  running.abortTimer = null;
 }
 
 export function buildPromptCommand(
@@ -508,6 +607,30 @@ function isSessionEntry(entry: string, sessionId: string): boolean {
 
 function isNotFound(err: unknown): boolean {
   return err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT";
+}
+
+function latestAssistantMessage(messages: unknown): Record<string, unknown> | null {
+  if (!Array.isArray(messages)) return null;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (isRecord(message) && message.role === "assistant") return message;
+  }
+  return null;
+}
+
+function readAssistantTerminalError(message: unknown): string | null {
+  if (!isRecord(message) || message.role !== "assistant") return null;
+
+  const stopReason = readString(message.stopReason);
+  if (stopReason === "aborted") {
+    return "Felix stopped this turn. Send another message when you're ready.";
+  }
+
+  const errorMessage = readString(message.errorMessage);
+  if (errorMessage) return errorMessage;
+  if (stopReason === "error") return "Felix hit an error before it could finish.";
+
+  return null;
 }
 
 function toolCallDetail(toolName: string, args: unknown): string | undefined {

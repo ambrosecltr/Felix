@@ -95,7 +95,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       } else if (event.kind === "chatTurn") {
         setChats((prev) => ({
           ...prev,
-          [event.appId]: [...(prev[event.appId] ?? []), event.turn],
+          [event.appId]: appendIncomingTurn(prev[event.appId] ?? [], event.turn),
         }));
       } else if (event.kind === "miniAppUpdated") {
         setApps((prev) =>
@@ -125,7 +125,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           markToolEnd(event.appId, e.toolName, e.isError);
         } else if (e.type === "error") {
           setFelixThinking((p) => ({ ...p, [event.appId]: false }));
-          finishFelixTurn(event.appId, "error", `Oops, something went wrong. ${e.message}`);
+          finishFelixTurn(event.appId, "error", userFacingAgentError(e.message));
         } else if (e.type === "extension_ui_request") {
           handleUiRequest(event.appId, e.request);
         }
@@ -143,9 +143,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (appId: string, mutate: (turn: ChatTurn) => ChatTurn) => {
       setChats((prev) => {
         const list = prev[appId] ?? [];
-        const last = list[list.length - 1];
-        if (!last || last.role !== "felix") return prev;
-        return { ...prev, [appId]: [...list.slice(0, -1), mutate(last)] };
+        const index = activeFelixTurnIndex(list);
+        if (index === -1) return prev;
+        const activeTurn = list[index];
+        if (!activeTurn) return prev;
+        return { ...prev, [appId]: replaceTurnAtEnd(list, index, mutate(activeTurn)) };
       });
     },
     [],
@@ -154,6 +156,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const startFelixTurn = useCallback((appId: string) => {
     setChats((prev) => {
       const list = prev[appId] ?? [];
+      const activeIndex = activeFelixTurnIndex(list);
+      if (activeIndex !== -1) {
+        return { ...prev, [appId]: moveTurnToEnd(list, activeIndex) };
+      }
+
+      const retryableIndex = retryableFelixTurnIndex(list);
+      const retryableTurn = list[retryableIndex];
+      if (retryableTurn) {
+        return {
+          ...prev,
+          [appId]: replaceTurnAtEnd(list, retryableIndex, {
+            ...retryableTurn,
+            status: "working",
+            text: lastTextOf(retryableTurn),
+          }),
+        };
+      }
+
       const turn: ChatTurn = {
         id: newLiveTurnId("live"),
         role: "felix",
@@ -220,9 +240,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (appId: string, status: ChatTurn["status"], fallbackText?: string) => {
       setChats((prev) => {
         const list = prev[appId] ?? [];
-        const last = list[list.length - 1];
-        if (!last || last.role !== "felix") {
+        const activeIndex = activeFelixTurnIndex(list);
+        if (activeIndex === -1) {
           if (status !== "error") return prev;
+          const lastFelix = list[lastFelixTurnIndex(list)];
+          if (lastFelix?.status === "error") return prev;
           const turn: ChatTurn = {
             id: newLiveTurnId("live-error"),
             role: "felix",
@@ -234,14 +256,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           };
           return { ...prev, [appId]: [...list, turn] };
         }
+        const last = list[activeIndex];
+        if (!last) return prev;
         if (last.status === "error" && status === "done") return prev;
         const text = lastTextOf(last);
         const turn = {
           ...last,
           status,
-          text: text.length > 0 ? text : (fallbackText ?? last.text),
+          text:
+            status === "error" && fallbackText
+              ? errorText(text.length > 0 ? text : last.text, fallbackText)
+              : text.length > 0
+                ? text
+                : (fallbackText ?? last.text),
         };
-        return { ...prev, [appId]: [...list.slice(0, -1), turn] };
+        return { ...prev, [appId]: replaceTurnAtEnd(list, activeIndex, turn) };
       });
     },
     [],
@@ -407,4 +436,60 @@ export function useStore(): StoreValue {
 
 function newLiveTurnId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
+}
+
+function appendIncomingTurn(list: ChatTurn[], turn: ChatTurn): ChatTurn[] {
+  const existingIndex = list.findIndex((item) => item.id === turn.id);
+  if (existingIndex === -1) return [...list, turn];
+  const next = [...list];
+  next[existingIndex] = turn;
+  return next;
+}
+
+function activeFelixTurnIndex(turns: ChatTurn[]): number {
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    const turn = turns[i];
+    if (turn?.role === "felix" && turn.status === "working") return i;
+  }
+  return -1;
+}
+
+function retryableFelixTurnIndex(turns: ChatTurn[]): number {
+  const lastIndex = turns.length - 1;
+  const last = turns[lastIndex];
+  return last?.role === "felix" && last.status === "error" ? lastIndex : -1;
+}
+
+function lastFelixTurnIndex(turns: ChatTurn[]): number {
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    if (turns[i]?.role === "felix") return i;
+  }
+  return -1;
+}
+
+function replaceTurnAtEnd(turns: ChatTurn[], index: number, turn: ChatTurn): ChatTurn[] {
+  const next = [...turns];
+  next[index] = turn;
+  return index === next.length - 1 ? next : moveTurnToEnd(next, index);
+}
+
+function moveTurnToEnd(turns: ChatTurn[], index: number): ChatTurn[] {
+  const next = [...turns];
+  const [turn] = next.splice(index, 1);
+  return turn ? [...next, turn] : turns;
+}
+
+function errorText(currentText: string, fallbackText: string): string {
+  const current = currentText.trim();
+  const fallback = fallbackText.trim();
+  if (current.length === 0) return fallback;
+  if (current.includes(fallback)) return currentText;
+  return `${current}\n\n${fallback}`;
+}
+
+function userFacingAgentError(message: string): string {
+  const trimmed = message.trim();
+  if (trimmed.length === 0) return "Oops, something went wrong.";
+  if (trimmed.startsWith("Felix ")) return trimmed;
+  return `Oops, something went wrong. ${trimmed}`;
 }

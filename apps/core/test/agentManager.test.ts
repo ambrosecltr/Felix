@@ -1,9 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import { DEFAULT_SETTINGS, type AgentEvent } from "@felix/contracts";
 import {
+  AgentManager,
   buildAgentPath,
   buildPromptCommand,
   readAgentTokenUsageEvent,
 } from "../src/agentManager.ts";
+
+type TestableAgentManager = AgentManager & {
+  handleLine(appId: string, line: string): void;
+};
 
 describe("agent prompt commands", () => {
   test("omits images when none are prepared", () => {
@@ -107,5 +113,99 @@ describe("agent prompt commands", () => {
         "/bin",
       ].join(":"),
     );
+  });
+});
+
+describe("agent event lifecycle", () => {
+  test("does not close the Felix turn for retryable assistant message errors", () => {
+    const events: AgentEvent[] = [];
+    const manager = new AgentManager(
+      "/tmp/felix",
+      "/tmp/pi",
+      "/tmp/node",
+      "/tmp/bun",
+      (_appId, event) => events.push(event),
+      async () => DEFAULT_SETTINGS,
+    ) as TestableAgentManager;
+
+    manager.handleLine(
+      "app",
+      JSON.stringify({
+        type: "message_end",
+        message: {
+          role: "assistant",
+          stopReason: "error",
+          errorMessage: "Upstream idle timeout exceeded",
+        },
+      }),
+    );
+    manager.handleLine(
+      "app",
+      JSON.stringify({
+        type: "turn_end",
+        message: {
+          role: "assistant",
+          stopReason: "error",
+          errorMessage: "Upstream idle timeout exceeded",
+        },
+      }),
+    );
+
+    expect(events).toEqual([{ type: "message_end" }]);
+  });
+
+  test("emits a terminal error when auto retry finally fails", () => {
+    const events: AgentEvent[] = [];
+    const manager = new AgentManager(
+      "/tmp/felix",
+      "/tmp/pi",
+      "/tmp/node",
+      "/tmp/bun",
+      (_appId, event) => events.push(event),
+      async () => DEFAULT_SETTINGS,
+    ) as TestableAgentManager;
+
+    manager.handleLine(
+      "app",
+      JSON.stringify({
+        type: "auto_retry_end",
+        success: false,
+        attempt: 3,
+        finalError: "Upstream idle timeout exceeded",
+      }),
+    );
+
+    expect(events).toEqual([{ type: "error", message: "Upstream idle timeout exceeded" }]);
+  });
+
+  test("emits a terminal error at final agent_end", () => {
+    const events: AgentEvent[] = [];
+    const manager = new AgentManager(
+      "/tmp/felix",
+      "/tmp/pi",
+      "/tmp/node",
+      "/tmp/bun",
+      (_appId, event) => events.push(event),
+      async () => DEFAULT_SETTINGS,
+    ) as TestableAgentManager;
+
+    manager.handleLine(
+      "app",
+      JSON.stringify({
+        type: "agent_end",
+        messages: [
+          {
+            role: "assistant",
+            stopReason: "error",
+            errorMessage: "Upstream idle timeout exceeded",
+          },
+        ],
+      }),
+    );
+
+    expect(events).toEqual([
+      { type: "error", message: "Upstream idle timeout exceeded" },
+      { type: "agent_end" },
+    ]);
   });
 });

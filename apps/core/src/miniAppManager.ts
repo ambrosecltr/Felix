@@ -70,6 +70,8 @@ const INSTALL_TIMEOUT_MS = 5 * 60_000;
 const DELETE_MAX_RETRIES = 10;
 const DELETE_RETRY_DELAY_MS = 100;
 const ICON_FILE_BASE_NAME = "icon";
+const INTERRUPTED_TURN_TEXT =
+  "Felix was interrupted before it could finish. Send another message when you're ready.";
 const ICON_MIME_EXTENSIONS: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
@@ -234,6 +236,7 @@ export class MiniAppManager {
   async open(appId: string): Promise<MiniAppSummary> {
     const manifest = await this.readManifest(appId);
     if (!manifest) throw new Error(`Mini app not found: ${appId}`);
+    if (!this.agent.isRunning(appId)) await this.recoverInterruptedChat(appId);
     await this.writeInstallPolicy(this.appDir(appId));
     if (!this.vite.isRunning(appId)) {
       this.setStatus(appId, "starting");
@@ -433,6 +436,7 @@ export class MiniAppManager {
   }
 
   async chatHistory(appId: string): Promise<ChatTurn[]> {
+    if (!this.agent.isRunning(appId)) await this.recoverInterruptedChat(appId);
     return this.chatStore(appId).list();
   }
 
@@ -473,21 +477,34 @@ export class MiniAppManager {
       this.resizeImage,
     );
     await this.agent.start(appId, dir, manifest.name);
+    const isSteering = this.agent.isStreaming(appId);
 
     const store = this.chatStore(appId);
-    const kidTurn = await store.appendKidTurn(text, attachments);
-    this.emit({ kind: "chatTurn", appId, turn: kidTurn });
-
-    await git.checkpoint(dir, checkpointMessage(text, attachments), "kid");
-
-    manifest.updatedAt = new Date().toISOString();
-    await this.writeManifest(manifest);
+    if (isSteering) {
+      await this.persistQueues.get(appId)?.catch(() => {});
+      const { closedFelixTurn, kidTurn, felixTurn } = await store.appendSteeringKidTurn(
+        text,
+        attachments,
+      );
+      if (closedFelixTurn) this.emit({ kind: "agent", appId, event: { type: "agent_end" } });
+      this.emit({ kind: "chatTurn", appId, turn: kidTurn });
+      this.emit({ kind: "chatTurn", appId, turn: felixTurn });
+      this.emit({ kind: "agent", appId, event: { type: "agent_start" } });
+    } else {
+      const kidTurn = await store.appendKidTurn(text, attachments);
+      this.emit({ kind: "chatTurn", appId, turn: kidTurn });
+    }
 
     this.agent.prompt(
       appId,
       promptWithAttachments(text, attachments, preparedImages.notes),
       preparedImages.images,
     );
+
+    await git.checkpoint(dir, checkpointMessage(text, attachments), "kid");
+
+    manifest.updatedAt = new Date().toISOString();
+    await this.writeManifest(manifest);
   }
 
   private async persistChatAttachments(
@@ -813,11 +830,16 @@ export class MiniAppManager {
         }
         return;
       case "error":
-        await store.failFelixTurn(`Oops, something went wrong. ${event.message}`);
+        await store.failFelixTurn(userFacingAgentError(event.message));
         return;
       default:
         return;
     }
+  }
+
+  private async recoverInterruptedChat(appId: string): Promise<void> {
+    await this.persistQueues.get(appId)?.catch(() => {});
+    await this.chatStore(appId).recoverInterruptedTurns(INTERRUPTED_TURN_TEXT);
   }
 
   shutdown(): void {
@@ -991,4 +1013,11 @@ function formatBytes(bytes: number): string {
   const kilobytes = bytes / 1024;
   if (kilobytes < 1024) return `${kilobytes.toFixed(1)} KB`;
   return `${(kilobytes / 1024).toFixed(1)} MB`;
+}
+
+function userFacingAgentError(message: string): string {
+  const trimmed = message.trim();
+  if (trimmed.length === 0) return "Oops, something went wrong.";
+  if (trimmed.startsWith("Felix ")) return trimmed;
+  return `Oops, something went wrong. ${trimmed}`;
 }
