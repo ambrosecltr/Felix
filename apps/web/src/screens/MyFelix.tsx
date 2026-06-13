@@ -159,9 +159,45 @@ function TopAppMetricHeader({
   );
 }
 
-function TopAppRow({ app, index }: { app: ProfileAppUsage; index: number }) {
+const PIXEL8_COLUMNS = 64;
+const PIXEL8_ROWS = 4;
+const PIXEL8_CYCLE_S = 7.2;
+
+function Pixel8Background() {
+  const centerCol = (PIXEL8_COLUMNS - 1) / 2;
+  const centerRow = (PIXEL8_ROWS - 1) / 2;
+  const maxDistance = Math.hypot(centerCol, centerRow * 8);
+  const cells = [];
+  for (let row = 0; row < PIXEL8_ROWS; row += 1) {
+    for (let col = 0; col < PIXEL8_COLUMNS; col += 1) {
+      const distance = Math.hypot(col - centerCol, (row - centerRow) * 8);
+      const progress = distance / maxDistance;
+      const delay = -(PIXEL8_CYCLE_S * (1 - progress));
+      cells.push(
+        <span
+          key={`${row}-${col}`}
+          className="pixel8-cell"
+          style={{ animationDelay: `${delay.toFixed(2)}s` }}
+        />,
+      );
+    }
+  }
   return (
-    <div className={`${TOP_APP_GRID_CLASS} rounded-xl bg-muted/50 px-3 py-2`}>
+    <div aria-hidden className="pixel8-grid">
+      {cells}
+    </div>
+  );
+}
+
+function TopAppRow({ app, index }: { app: ProfileAppUsage; index: number }) {
+  const isTopApp = index === 0;
+  return (
+    <div
+      className={`${TOP_APP_GRID_CLASS} relative rounded-xl bg-muted/50 px-3 py-2 ${
+        isTopApp ? "pixel8-row overflow-hidden" : ""
+      }`}
+    >
+      {isTopApp ? <Pixel8Background /> : null}
       <div className="flex min-w-0 items-center gap-3">
         <MiniAppIconView
           appId={app.appId}

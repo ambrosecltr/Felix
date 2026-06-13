@@ -251,6 +251,94 @@ code {
   }
 }
 
+/*
+ * 8-bit radial pulse. One shared 7.2s clock drives everything:
+ * cells snap through a 6-color retro palette (no blending) while their
+ * brightness flashes on each color change. Per-cell delays spread the
+ * full cycle across the distance from the row center, so all palette
+ * colors are visible at once as concentric bands marching outward.
+ * The rainbow border rotates on the same clock with the same palette.
+ */
+@keyframes pixel8-color {
+  0%,
+  16.6% {
+    background-color: #ff004d;
+  }
+
+  16.67%,
+  33.27% {
+    background-color: #ffa300;
+  }
+
+  33.33%,
+  49.93% {
+    background-color: #ffec27;
+  }
+
+  50%,
+  66.6% {
+    background-color: #00e436;
+  }
+
+  66.67%,
+  83.27% {
+    background-color: #29adff;
+  }
+
+  83.33%,
+  99.93% {
+    background-color: #c14aff;
+  }
+
+  100% {
+    background-color: #ff004d;
+  }
+}
+
+@keyframes pixel8-intensity {
+  0% {
+    opacity: 0.85;
+  }
+
+  100% {
+    opacity: 0.22;
+  }
+}
+
+.pixel8-row {
+  isolation: isolate;
+}
+
+.pixel8-grid {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  display: grid;
+  grid-template-columns: repeat(64, 1fr);
+  grid-template-rows: repeat(4, 1fr);
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0.45;
+}
+
+.pixel8-cell {
+  background-color: #29adff;
+  opacity: 0.25;
+  animation:
+    pixel8-color 7.2s linear infinite,
+    pixel8-intensity 1.2s linear infinite;
+}
+
+.dark .pixel8-grid {
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pixel8-cell {
+    animation: none;
+  }
+}
+
 .shimmer-text {
   color: transparent;
   background: linear-gradient(90deg, #a3a3a3 0%, #a3a3a3 35%, #525252 50%, #a3a3a3 65%, #a3a3a3 100%);
