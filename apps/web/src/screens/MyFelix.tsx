@@ -1,3 +1,4 @@
+import type { ProfileAppUsage } from "@felix/contracts";
 import { useEffect, useState } from "react";
 import { MiniAppIconView } from "../components/MiniAppIconView.tsx";
 import { ProfileInitials } from "../components/ProfileInitials.tsx";
@@ -11,14 +12,25 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog.tsx";
-import { formatFullTokenCount, formatTokenCount } from "../lib/format.ts";
+import {
+  formatBuildDuration,
+  formatFullTokenCount,
+  formatInteger,
+  formatTokenCount,
+} from "../lib/format.ts";
 import { useIcon } from "../lib/icon-context.tsx";
 import { useStore } from "../store.tsx";
+
+const TOP_APP_GRID_CLASS =
+  "grid grid-cols-[minmax(18rem,1fr)_7rem_8rem_10rem] items-center gap-4";
 
 export function MyFelixPanel() {
   const { profileOverview, profileLoading, refreshProfile, setProfileName } = useStore();
   const [editingName, setEditingName] = useState(false);
   const PencilIcon = useIcon("pencil");
+  const TokensIcon = useIcon("star");
+  const MessagesIcon = useIcon("message-circle");
+  const TimeIcon = useIcon("clock");
 
   useEffect(() => {
     void refreshProfile();
@@ -76,40 +88,37 @@ export function MyFelixPanel() {
         </section>
 
         <section className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-sm font-medium">Top apps</h2>
-            <p className="text-xs text-muted-foreground">Ranked by tokens used while building.</p>
-          </div>
           {stats.topApps.length > 0 ? (
-            <div className="flex flex-col gap-2">
-              {stats.topApps.map((app, index) => (
-                <div
-                  key={app.appId}
-                  className="flex items-center justify-between gap-4 rounded-xl bg-muted/50 px-3 py-2"
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <MiniAppIconView
-                      appId={app.appId}
-                      emoji={app.emoji}
-                      icon={app.icon}
-                      className="size-9 shrink-0 rounded-[10px] bg-surface-3 shadow-surface-1"
-                      emojiClassName="text-base"
-                    />
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{app.name}</p>
-                      <p className="text-xs text-muted-foreground">#{index + 1}</p>
-                    </div>
+            <div className="overflow-x-auto">
+              <div className="flex min-w-[48rem] flex-col gap-2">
+                <div className={`${TOP_APP_GRID_CLASS} px-3 pb-1`}>
+                  <div className="flex flex-col gap-1">
+                    <h2 className="text-sm font-medium">Top apps</h2>
+                    <p className="text-xs text-muted-foreground">
+                      Ranked by tokens used while building.
+                    </p>
                   </div>
-                  <span className="shrink-0 text-sm font-medium" title={formatFullTokenCount(app.tokens)}>
-                    {formatTokenCount(app.tokens)}
-                  </span>
+                  <TopAppMetricHeader icon={TokensIcon} label="Tokens" />
+                  <TopAppMetricHeader icon={MessagesIcon} label="Messages" />
+                  <TopAppMetricHeader icon={TimeIcon} label="Time building" />
                 </div>
-              ))}
+                {stats.topApps.map((app, index) => (
+                  <TopAppRow key={app.appId} app={app} index={index} />
+                ))}
+              </div>
             </div>
           ) : (
-            <p className="rounded-xl bg-muted/50 px-3 py-6 text-center text-sm text-muted-foreground">
-              No build tokens tracked yet.
-            </p>
+            <>
+              <div className="flex flex-col gap-1">
+                <h2 className="text-sm font-medium">Top apps</h2>
+                <p className="text-xs text-muted-foreground">
+                  Ranked by tokens used while building.
+                </p>
+              </div>
+              <p className="rounded-xl bg-muted/50 px-3 py-6 text-center text-sm text-muted-foreground">
+                No build tokens tracked yet.
+              </p>
+            </>
           )}
         </section>
       </div>
@@ -135,12 +144,70 @@ export function MyFelixPanel() {
   );
 }
 
+function TopAppMetricHeader({
+  icon: Icon,
+  label,
+}: {
+  icon: ReturnType<typeof useIcon>;
+  label: string;
+}) {
+  return (
+    <span className="inline-flex items-center justify-end gap-1 whitespace-nowrap text-right text-xs text-muted-foreground">
+      <Icon className="size-3 shrink-0" />
+      <span>{label}</span>
+    </span>
+  );
+}
+
+function TopAppRow({ app, index }: { app: ProfileAppUsage; index: number }) {
+  return (
+    <div className={`${TOP_APP_GRID_CLASS} rounded-xl bg-muted/50 px-3 py-2`}>
+      <div className="flex min-w-0 items-center gap-3">
+        <MiniAppIconView
+          appId={app.appId}
+          emoji={app.emoji}
+          icon={app.icon}
+          className="size-9 shrink-0 rounded-[10px] bg-surface-3 shadow-surface-1"
+          emojiClassName="text-base"
+        />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">{app.name}</p>
+          <p className="text-xs text-muted-foreground">#{index + 1}</p>
+        </div>
+      </div>
+      <TopAppMetricValue title={formatFullTokenCount(app.tokens)}>
+        {formatTokenCount(app.tokens)}
+      </TopAppMetricValue>
+      <TopAppMetricValue title={formatInteger(app.completedMessages)}>
+        {formatInteger(app.completedMessages)}
+      </TopAppMetricValue>
+      <TopAppMetricValue title={formatBuildDuration(app.buildTimeMs)}>
+        {formatBuildDuration(app.buildTimeMs)}
+      </TopAppMetricValue>
+    </div>
+  );
+}
+
 function StatTile({ label, value }: { label: string; value: string }) {
   return (
     <div className="relative flex min-h-24 flex-col items-center justify-center gap-1 px-4 py-4 text-center after:absolute after:right-0 after:top-1/2 after:hidden after:h-12 after:w-px after:-translate-y-1/2 after:bg-border/60 sm:after:block sm:last:after:hidden">
       <span className="text-2xl font-semibold leading-none tracking-tight">{value}</span>
       <span className="text-xs text-muted-foreground">{label}</span>
     </div>
+  );
+}
+
+function TopAppMetricValue({
+  title,
+  children,
+}: {
+  title: string;
+  children: string;
+}) {
+  return (
+    <span className="text-right text-sm font-medium tabular-nums" title={title}>
+      {children}
+    </span>
   );
 }
 

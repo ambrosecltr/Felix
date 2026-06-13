@@ -27,16 +27,40 @@ interface TokenUsageLedger {
   entries: TokenUsageEntry[];
 }
 
+export interface CompletedTurnMetricEntry {
+  turnId: string;
+  appId: string;
+  completedAt: string;
+}
+
+export interface BuildSessionMetricEntry {
+  buildId: string;
+  appId: string;
+  startedAt: string;
+  endedAt: string;
+  durationMs: number;
+}
+
+export interface ProfileMetricsLedger {
+  version: 1;
+  completedTurns: CompletedTurnMetricEntry[];
+  buildSessions: BuildSessionMetricEntry[];
+}
+
 export class ProfileStore {
   private cachedProfile: FelixProfile | null = null;
   private cachedLedger: TokenUsageLedger | null = null;
+  private cachedMetrics: ProfileMetricsLedger | null = null;
   private profileWriteQueue: Promise<void> = Promise.resolve();
   private ledgerWriteQueue: Promise<void> = Promise.resolve();
+  private metricsWriteQueue: Promise<void> = Promise.resolve();
   private ledgerMutationQueue: Promise<unknown> = Promise.resolve();
+  private metricsMutationQueue: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly profileFile: string,
     private readonly tokenUsageFile: string,
+    private readonly profileMetricsFile: string,
   ) {}
 
   async getProfile(): Promise<FelixProfile> {
@@ -103,9 +127,91 @@ export class ProfileStore {
     return true;
   }
 
+  async recordCompletedTurn(
+    appId: string,
+    turnId: string,
+    completedAt: string,
+  ): Promise<boolean> {
+    const task = this.metricsMutationQueue
+      .catch(() => {})
+      .then(() => this.recordCompletedTurnNow(appId, turnId, completedAt));
+    this.metricsMutationQueue = task;
+    return task;
+  }
+
+  private async recordCompletedTurnNow(
+    appId: string,
+    turnId: string,
+    completedAt: string,
+  ): Promise<boolean> {
+    const trimmedAppId = appId.trim();
+    const trimmedTurnId = turnId.trim();
+    if (trimmedAppId.length === 0 || trimmedTurnId.length === 0) return false;
+
+    const metrics = await this.mutableMetrics();
+    if (metrics.completedTurns.some((entry) => entry.turnId === trimmedTurnId)) return false;
+
+    const timestamp = validDateOrNow(completedAt);
+    metrics.completedTurns.push({
+      turnId: trimmedTurnId,
+      appId: trimmedAppId,
+      completedAt: timestamp.toISOString(),
+    });
+    await this.writeMetrics(metrics);
+    return true;
+  }
+
+  async recordBuildSession(
+    appId: string,
+    buildId: string,
+    startedAt: string,
+    endedAt: string,
+  ): Promise<boolean> {
+    const task = this.metricsMutationQueue
+      .catch(() => {})
+      .then(() => this.recordBuildSessionNow(appId, buildId, startedAt, endedAt));
+    this.metricsMutationQueue = task;
+    return task;
+  }
+
+  private async recordBuildSessionNow(
+    appId: string,
+    buildId: string,
+    startedAt: string,
+    endedAt: string,
+  ): Promise<boolean> {
+    const trimmedAppId = appId.trim();
+    const trimmedBuildId = buildId.trim();
+    if (trimmedAppId.length === 0 || trimmedBuildId.length === 0) return false;
+
+    const start = validDateOrNull(startedAt);
+    const end = validDateOrNull(endedAt);
+    if (!start || !end) return false;
+
+    const durationMs = end.getTime() - start.getTime();
+    if (durationMs <= 0) return false;
+
+    const metrics = await this.mutableMetrics();
+    if (metrics.buildSessions.some((entry) => entry.buildId === trimmedBuildId)) return false;
+
+    metrics.buildSessions.push({
+      buildId: trimmedBuildId,
+      appId: trimmedAppId,
+      startedAt: start.toISOString(),
+      endedAt: end.toISOString(),
+      durationMs,
+    });
+    await this.writeMetrics(metrics);
+    return true;
+  }
+
   async overview(apps: MiniAppManifest[], now = new Date()): Promise<ProfileOverview> {
-    const [profile, ledger] = await Promise.all([this.getProfile(), this.getLedger()]);
-    const stats = buildProfileStats(ledger.entries, apps, now);
+    const [profile, ledger, metrics] = await Promise.all([
+      this.getProfile(),
+      this.getLedger(),
+      this.getMetrics(),
+    ]);
+    const stats = buildProfileStats(ledger.entries, apps, now, metrics);
     return ProfileOverview.parse({ profile, stats });
   }
 
@@ -135,15 +241,45 @@ export class ProfileStore {
       .then(() => writeJsonFileAtomically(this.tokenUsageFile, snapshot));
     await this.ledgerWriteQueue;
   }
+
+  private async getMetrics(): Promise<ProfileMetricsLedger> {
+    if (this.cachedMetrics) return structuredClone(this.cachedMetrics);
+    try {
+      const raw = await fs.readFile(this.profileMetricsFile, "utf8");
+      this.cachedMetrics = parseProfileMetricsLedger(JSON.parse(raw));
+    } catch (error) {
+      if (!isNotFound(error)) throw error;
+      this.cachedMetrics = emptyMetricsLedger();
+    }
+    return structuredClone(this.cachedMetrics);
+  }
+
+  private async mutableMetrics(): Promise<ProfileMetricsLedger> {
+    if (this.cachedMetrics) return this.cachedMetrics;
+    this.cachedMetrics = await this.getMetrics();
+    return this.cachedMetrics;
+  }
+
+  private async writeMetrics(metrics: ProfileMetricsLedger): Promise<void> {
+    const snapshot = structuredClone(metrics);
+    this.cachedMetrics = snapshot;
+    this.metricsWriteQueue = this.metricsWriteQueue
+      .catch(() => {})
+      .then(() => writeJsonFileAtomically(this.profileMetricsFile, snapshot));
+    await this.metricsWriteQueue;
+  }
 }
 
 export function buildProfileStats(
   entries: TokenUsageEntry[],
   apps: MiniAppManifest[],
   now = new Date(),
+  metrics: ProfileMetricsLedger = emptyMetricsLedger(),
 ): ProfileStats {
   const tokensByDate = new Map<string, number>();
   const tokensByApp = new Map<string, number>();
+  const completedMessagesByApp = new Map<string, number>();
+  const buildTimeByApp = new Map<string, number>();
   let lifetimeTokens = 0;
 
   for (const entry of entries) {
@@ -153,21 +289,36 @@ export function buildProfileStats(
     tokensByApp.set(entry.appId, (tokensByApp.get(entry.appId) ?? 0) + tokens);
   }
 
+  for (const entry of metrics.completedTurns) {
+    completedMessagesByApp.set(
+      entry.appId,
+      (completedMessagesByApp.get(entry.appId) ?? 0) + 1,
+    );
+  }
+
+  for (const entry of metrics.buildSessions) {
+    buildTimeByApp.set(entry.appId, (buildTimeByApp.get(entry.appId) ?? 0) + entry.durationMs);
+  }
+
   const activity = activityDays(tokensByDate, now);
   const activeDates = new Set(
     [...tokensByDate.entries()].filter(([, tokens]) => tokens > 0).map(([date]) => date),
   );
   const appById = new Map(apps.map((app) => [app.id, app]));
   const topApps: ProfileAppUsage[] = [...tokensByApp.entries()]
-    .map(([appId, tokens]) => {
+    .flatMap(([appId, tokens]) => {
       const app = appById.get(appId);
-      return {
+      if (!app) return [];
+
+      return [{
         appId,
-        name: app?.name ?? "Deleted app",
-        emoji: app?.emoji ?? "?",
-        icon: app?.icon ?? null,
+        name: app.name,
+        emoji: app.emoji,
+        icon: app.icon,
         tokens,
-      };
+        completedMessages: completedMessagesByApp.get(appId) ?? 0,
+        buildTimeMs: buildTimeByApp.get(appId) ?? 0,
+      }];
     })
     .sort((a, b) => b.tokens - a.tokens || a.name.localeCompare(b.name))
     .slice(0, TOP_APP_LIMIT);
@@ -245,6 +396,11 @@ function validDateOrNow(value: string): Date {
   return Number.isNaN(date.getTime()) ? new Date() : date;
 }
 
+function validDateOrNull(value: string): Date | null {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function parseTokenUsageLedger(value: unknown): TokenUsageLedger {
   if (!isRecord(value) || !Array.isArray(value.entries)) return emptyLedger();
   return {
@@ -253,6 +409,65 @@ function parseTokenUsageLedger(value: unknown): TokenUsageLedger {
       const parsed = parseTokenUsageEntry(entry);
       return parsed ? [parsed] : [];
     }),
+  };
+}
+
+function parseProfileMetricsLedger(value: unknown): ProfileMetricsLedger {
+  if (!isRecord(value)) return emptyMetricsLedger();
+  return {
+    version: 1,
+    completedTurns: Array.isArray(value.completedTurns)
+      ? value.completedTurns.flatMap((entry) => {
+          const parsed = parseCompletedTurnMetricEntry(entry);
+          return parsed ? [parsed] : [];
+        })
+      : [],
+    buildSessions: Array.isArray(value.buildSessions)
+      ? value.buildSessions.flatMap((entry) => {
+          const parsed = parseBuildSessionMetricEntry(entry);
+          return parsed ? [parsed] : [];
+        })
+      : [],
+  };
+}
+
+function parseCompletedTurnMetricEntry(value: unknown): CompletedTurnMetricEntry | null {
+  if (!isRecord(value)) return null;
+  if (
+    typeof value.turnId !== "string" ||
+    typeof value.appId !== "string" ||
+    typeof value.completedAt !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    turnId: value.turnId,
+    appId: value.appId,
+    completedAt: value.completedAt,
+  };
+}
+
+function parseBuildSessionMetricEntry(value: unknown): BuildSessionMetricEntry | null {
+  if (!isRecord(value)) return null;
+  if (
+    typeof value.buildId !== "string" ||
+    typeof value.appId !== "string" ||
+    typeof value.startedAt !== "string" ||
+    typeof value.endedAt !== "string" ||
+    typeof value.durationMs !== "number" ||
+    !Number.isInteger(value.durationMs) ||
+    value.durationMs < 0
+  ) {
+    return null;
+  }
+
+  return {
+    buildId: value.buildId,
+    appId: value.appId,
+    startedAt: value.startedAt,
+    endedAt: value.endedAt,
+    durationMs: value.durationMs,
   };
 }
 
@@ -282,6 +497,10 @@ function parseTokenUsageEntry(value: unknown): TokenUsageEntry | null {
 
 function emptyLedger(): TokenUsageLedger {
   return { version: 1, entries: [] };
+}
+
+function emptyMetricsLedger(): ProfileMetricsLedger {
+  return { version: 1, completedTurns: [], buildSessions: [] };
 }
 
 async function writeJsonFileAtomically(filePath: string, value: unknown): Promise<void> {

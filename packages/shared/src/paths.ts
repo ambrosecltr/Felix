@@ -17,6 +17,7 @@ export interface FelixPaths {
   readonly settingsFile: string;
   readonly profileFile: string;
   readonly tokenUsageFile: string;
+  readonly profileMetricsFile: string;
 }
 
 export function felixPaths(dataDir?: string | null): FelixPaths {
@@ -28,6 +29,7 @@ export function felixPaths(dataDir?: string | null): FelixPaths {
     settingsFile: path.join(root, "settings.json"),
     profileFile: path.join(root, "profile.json"),
     tokenUsageFile: path.join(root, "token-usage.json"),
+    profileMetricsFile: path.join(root, "profile-metrics.json"),
   };
 }
 

@@ -66,6 +66,10 @@ export interface MiniAppManagerOptions {
 
 type Emit = (event: PushEvent) => void;
 type AgentTokenUsageEvent = NonNullable<ReturnType<typeof readAgentTokenUsageEvent>>;
+type ActiveBuildSession = {
+  buildId: string;
+  startedAt: string;
+};
 const INSTALL_TIMEOUT_MS = 5 * 60_000;
 const DELETE_MAX_RETRIES = 10;
 const DELETE_RETRY_DELAY_MS = 100;
@@ -81,7 +85,11 @@ const ICON_MIME_EXTENSIONS: Record<string, string> = {
 export class MiniAppManager {
   private readonly paths = felixPaths();
   private readonly settings = new SettingsStore();
-  private readonly profile = new ProfileStore(this.paths.profileFile, this.paths.tokenUsageFile);
+  private readonly profile = new ProfileStore(
+    this.paths.profileFile,
+    this.paths.tokenUsageFile,
+    this.paths.profileMetricsFile,
+  );
   private readonly vite: ViteManager;
   private readonly agent: AgentManager;
   private statuses = new Map<string, MiniAppStatus>();
@@ -91,6 +99,8 @@ export class MiniAppManager {
   private aboutDebounce = new Map<string, ReturnType<typeof setTimeout>>();
   private iconGenerationRequests = new Map<string, string>();
   private iconGenerationRunning = new Set<string>();
+  private activeBuildSessions = new Map<string, ActiveBuildSession>();
+  private profileMetricsBackfilledApps = new Set<string>();
   private readonly bunBin: string;
   private readonly resizeImage: ResizeImage | undefined;
 
@@ -486,12 +496,21 @@ export class MiniAppManager {
         text,
         attachments,
       );
+      const steeredAt = new Date().toISOString();
+      const didRecordClosedFelixTurn = await this.recordCompletedTurn(appId, closedFelixTurn);
+      const didRecordClosedBuild = await this.finishActiveBuildSession(appId, steeredAt);
+      const didRecordKidTurn = await this.recordCompletedTurn(appId, kidTurn);
+      this.startActiveBuildSession(appId, felixTurn.createdAt);
+      await this.emitProfileUpdatedIf(
+        didRecordClosedFelixTurn || didRecordClosedBuild || didRecordKidTurn,
+      );
       if (closedFelixTurn) this.emit({ kind: "agent", appId, event: { type: "agent_end" } });
       this.emit({ kind: "chatTurn", appId, turn: kidTurn });
       this.emit({ kind: "chatTurn", appId, turn: felixTurn });
       this.emit({ kind: "agent", appId, event: { type: "agent_start" } });
     } else {
       const kidTurn = await store.appendKidTurn(text, attachments);
+      await this.emitProfileUpdatedIf(await this.recordCompletedTurn(appId, kidTurn));
       this.emit({ kind: "chatTurn", appId, turn: kidTurn });
     }
 
@@ -618,6 +637,7 @@ export class MiniAppManager {
     await git.restoreCheckpoint(this.appDir(appId), checkpointId);
     this.chatStores.delete(appId);
     this.persistQueues.delete(appId);
+    this.profileMetricsBackfilledApps.delete(appId);
   }
 
   // --- settings ---
@@ -687,6 +707,7 @@ export class MiniAppManager {
 
   async getProfileOverview() {
     await this.backfillTokenUsageFromSessions();
+    await this.backfillCompletedTurnMetrics();
     return this.profileOverview();
   }
 
@@ -806,7 +827,7 @@ export class MiniAppManager {
     const store = this.chatStore(appId);
     switch (event.type) {
       case "agent_start":
-        await store.startFelixTurn();
+        this.startActiveBuildSession(appId, (await store.startFelixTurn()).createdAt);
         return;
       case "text_delta":
         await store.appendText(event.delta);
@@ -823,13 +844,20 @@ export class MiniAppManager {
         await store.markToolEnd(event.toolName, event.isError);
         return;
       case "agent_end":
-        await store.finishTurn("done");
+        {
+          const endedAt = new Date().toISOString();
+          const turn = await store.finishTurn("done");
+          const didRecordTurn = await this.recordCompletedTurn(appId, turn);
+          const didRecordBuild = await this.finishActiveBuildSession(appId, endedAt);
+          await this.emitProfileUpdatedIf(didRecordTurn || didRecordBuild);
+        }
         await this.syncAboutFile(appId);
         if (await this.backfillTokenUsageFromSessions([appId])) {
           this.emit({ kind: "profileUpdated", profile: await this.profileOverview() });
         }
         return;
       case "error":
+        this.activeBuildSessions.delete(appId);
         await store.failFelixTurn(userFacingAgentError(event.message));
         return;
       default:
@@ -849,7 +877,57 @@ export class MiniAppManager {
   }
 
   private async profileOverview() {
-    return this.profile.overview(await this.list());
+    const apps = await this.list();
+    await this.backfillCompletedTurnMetrics(apps.map((app) => app.id));
+    return this.profile.overview(apps);
+  }
+
+  private startActiveBuildSession(appId: string, startedAt: string): void {
+    if (this.activeBuildSessions.has(appId)) return;
+    this.activeBuildSessions.set(appId, {
+      buildId: newId("build"),
+      startedAt,
+    });
+  }
+
+  private async finishActiveBuildSession(appId: string, endedAt: string): Promise<boolean> {
+    const activeBuild = this.activeBuildSessions.get(appId);
+    if (!activeBuild) return false;
+    this.activeBuildSessions.delete(appId);
+    return this.profile.recordBuildSession(
+      appId,
+      activeBuild.buildId,
+      activeBuild.startedAt,
+      endedAt,
+    );
+  }
+
+  private async recordCompletedTurn(appId: string, turn: ChatTurn | null): Promise<boolean> {
+    if (!turn || turn.status !== "done") return false;
+    return this.profile.recordCompletedTurn(appId, turn.id, turn.createdAt);
+  }
+
+  private async emitProfileUpdatedIf(didUpdate: boolean): Promise<void> {
+    if (!didUpdate) return;
+    this.emit({ kind: "profileUpdated", profile: await this.profileOverview() });
+  }
+
+  private async backfillCompletedTurnMetrics(appIds?: string[]): Promise<boolean> {
+    const ids = appIds ?? (await this.listAppIds());
+    let didRecord = false;
+
+    for (const appId of ids) {
+      if (this.profileMetricsBackfilledApps.has(appId)) continue;
+      const turns = await this.chatStore(appId).list();
+      for (const turn of turns) {
+        if (turn.status !== "done") continue;
+        const recorded = await this.profile.recordCompletedTurn(appId, turn.id, turn.createdAt);
+        didRecord = didRecord || recorded;
+      }
+      this.profileMetricsBackfilledApps.add(appId);
+    }
+
+    return didRecord;
   }
 
   private async backfillTokenUsageFromSessions(appIds?: string[]): Promise<boolean> {

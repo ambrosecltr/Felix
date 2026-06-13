@@ -56,8 +56,77 @@ describe("profile store", () => {
       { date: "2026-06-06", tokens: 500 },
     ]);
     expect(overview.stats.topApps).toEqual([
-      { appId: "snake", name: "Snake Lab", emoji: "S", icon: snakeIcon, tokens: 600 },
-      { appId: "paint", name: "Paint Pad", emoji: "P", icon: null, tokens: 400 },
+      {
+        appId: "snake",
+        name: "Snake Lab",
+        emoji: "S",
+        icon: snakeIcon,
+        tokens: 600,
+        completedMessages: 0,
+        buildTimeMs: 0,
+      },
+      {
+        appId: "paint",
+        name: "Paint Pad",
+        emoji: "P",
+        icon: null,
+        tokens: 400,
+        completedMessages: 0,
+        buildTimeMs: 0,
+      },
+    ]);
+  });
+
+  test("dedupes completed turns and build sessions in top app metrics", async () => {
+    const store = await tempProfileStore();
+    await store.recordTokenUsage("snake", "usage-1", localIso(2026, 5, 6), usage(700));
+    await store.recordTokenUsage("paint", "usage-2", localIso(2026, 5, 6), usage(500));
+
+    expect(await store.recordCompletedTurn("snake", "turn-1", localIso(2026, 5, 6))).toBe(true);
+    expect(await store.recordCompletedTurn("snake", "turn-1", localIso(2026, 5, 6))).toBe(false);
+    await store.recordCompletedTurn("snake", "turn-2", localIso(2026, 5, 6));
+    await store.recordCompletedTurn("paint", "turn-3", localIso(2026, 5, 6));
+    expect(
+      await store.recordBuildSession(
+        "snake",
+        "build-1",
+        "2026-06-06T12:00:00.000Z",
+        "2026-06-06T12:02:30.000Z",
+      ),
+    ).toBe(true);
+    expect(
+      await store.recordBuildSession(
+        "snake",
+        "build-1",
+        "2026-06-06T12:00:00.000Z",
+        "2026-06-06T12:02:30.000Z",
+      ),
+    ).toBe(false);
+
+    const overview = await store.overview(
+      [miniApp("snake", "Snake Lab", "S"), miniApp("paint", "Paint Pad", "P")],
+      new Date(2026, 5, 6, 12),
+    );
+
+    expect(overview.stats.topApps).toEqual([
+      {
+        appId: "snake",
+        name: "Snake Lab",
+        emoji: "S",
+        icon: null,
+        tokens: 700,
+        completedMessages: 2,
+        buildTimeMs: 150_000,
+      },
+      {
+        appId: "paint",
+        name: "Paint Pad",
+        emoji: "P",
+        icon: null,
+        tokens: 500,
+        completedMessages: 1,
+        buildTimeMs: 0,
+      },
     ]);
   });
 
@@ -76,12 +145,90 @@ describe("profile store", () => {
     expect(stats.currentStreakDays).toBe(3);
     expect(stats.longestStreakDays).toBe(3);
   });
+
+  test("ranks top apps using only available apps", () => {
+    const now = new Date(2026, 5, 6, 12);
+    const stats = buildProfileStats(
+      [
+        entry("deleted-largest", "2026-06-06", 1000),
+        entry("snake", "2026-06-06", 700),
+        entry("deleted-smallest", "2026-06-06", 600),
+        entry("paint", "2026-06-06", 500),
+        entry("notes", "2026-06-06", 400),
+        entry("music", "2026-06-06", 300),
+        entry("calendar", "2026-06-06", 200),
+        entry("mail", "2026-06-06", 100),
+      ],
+      [
+        miniApp("snake", "Snake Lab", "S"),
+        miniApp("paint", "Paint Pad", "P"),
+        miniApp("notes", "Notes", "N"),
+        miniApp("music", "Music", "M"),
+        miniApp("calendar", "Calendar", "C"),
+        miniApp("mail", "Mail", "E"),
+      ],
+      now,
+    );
+
+    expect(stats.lifetimeTokens).toBe(3800);
+    expect(stats.topApps).toEqual([
+      {
+        appId: "snake",
+        name: "Snake Lab",
+        emoji: "S",
+        icon: null,
+        tokens: 700,
+        completedMessages: 0,
+        buildTimeMs: 0,
+      },
+      {
+        appId: "paint",
+        name: "Paint Pad",
+        emoji: "P",
+        icon: null,
+        tokens: 500,
+        completedMessages: 0,
+        buildTimeMs: 0,
+      },
+      {
+        appId: "notes",
+        name: "Notes",
+        emoji: "N",
+        icon: null,
+        tokens: 400,
+        completedMessages: 0,
+        buildTimeMs: 0,
+      },
+      {
+        appId: "music",
+        name: "Music",
+        emoji: "M",
+        icon: null,
+        tokens: 300,
+        completedMessages: 0,
+        buildTimeMs: 0,
+      },
+      {
+        appId: "calendar",
+        name: "Calendar",
+        emoji: "C",
+        icon: null,
+        tokens: 200,
+        completedMessages: 0,
+        buildTimeMs: 0,
+      },
+    ]);
+  });
 });
 
 async function tempProfileStore(): Promise<ProfileStore> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "felix-profile-"));
   tempDirs.push(dir);
-  return new ProfileStore(path.join(dir, "profile.json"), path.join(dir, "token-usage.json"));
+  return new ProfileStore(
+    path.join(dir, "profile.json"),
+    path.join(dir, "token-usage.json"),
+    path.join(dir, "profile-metrics.json"),
+  );
 }
 
 function usage(totalTokens: number): TokenUsage {

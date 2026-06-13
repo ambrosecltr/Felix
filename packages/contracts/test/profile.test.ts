@@ -27,6 +27,8 @@ describe("profile contracts", () => {
 
     expect(overview.stats.topApps[0]?.tokens).toBe(1250);
     expect(overview.stats.topApps[0]?.icon).toBe(null);
+    expect(overview.stats.topApps[0]?.completedMessages).toBe(0);
+    expect(overview.stats.topApps[0]?.buildTimeMs).toBe(0);
   });
 
   test("fills missing token usage parts with zeros", () => {

@@ -34,6 +34,8 @@ export const ProfileAppUsage = z.object({
   emoji: z.string(),
   icon: MiniAppIcon.nullable().default(null),
   tokens: NonNegativeInteger,
+  completedMessages: NonNegativeInteger.default(0),
+  buildTimeMs: NonNegativeInteger.default(0),
 });
 export type ProfileAppUsage = z.infer<typeof ProfileAppUsage>;
 
