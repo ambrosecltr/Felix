@@ -13,6 +13,8 @@ import {
   type ProviderModel,
   type ProviderModelsRequest,
   type ProviderModelsResponse,
+  type ProviderOAuthStatus,
+  type ReasoningEffort,
   type WebSearchProviderId,
 } from "@felix/contracts";
 import { felix } from "../bridge.ts";
@@ -51,6 +53,15 @@ const LEARNING_LEVEL_OPTIONS: { value: LearningLevel; label: string; description
     description: "Felix names real coding words and sometimes shows small bits of code.",
   },
 ];
+
+const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
+  off: "Off",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+  max: "Maximum",
+};
 
 interface SettingsTabItem {
   id: SettingsTab;
@@ -127,21 +138,20 @@ export function Settings() {
   const [modelResult, setModelResult] = useState<ProviderModelsResponse | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelRefreshToken, setModelRefreshToken] = useState(0);
+  const [oauthStatus, setOAuthStatus] = useState<ProviderOAuthStatus | null>(null);
+  const [oauthBusy, setOAuthBusy] = useState(false);
+  const [oauthError, setOAuthError] = useState("");
   const [lockdownPin, setLockdownPin] = useState("");
   const [lockdownConfirmPin, setLockdownConfirmPin] = useState("");
   const [lockdownConfigured, setLockdownConfigured] = useState(false);
   const saveTimeoutRefs = useRef<Partial<Record<SettingsTab, ReturnType<typeof setTimeout>>>>({});
   const modelRequestRef = useRef(0);
+  const oauthStatusRequestRef = useRef(0);
   const shouldReduceMotion = useReducedMotion();
   const RefreshIcon = useIcon("rotate-ccw");
 
   const activeProviderId = settings?.activeProvider;
   const activeApiKey = settings && activeProviderId ? keyFor(settings, activeProviderId) : "";
-  const activeProviderConfig =
-    settings && activeProviderId ? providerConfigFor(settings, activeProviderId) : null;
-  const activeOAuthAccessToken = activeProviderConfig?.oauth?.accessToken ?? "";
-  const activeOAuthExpiresAt = activeProviderConfig?.oauth?.expiresAt ?? "";
-  const activeOAuthError = activeProviderConfig?.oauth?.error ?? "";
 
   useEffect(() => {
     void Promise.all([
@@ -156,11 +166,35 @@ export function Settings() {
   useEffect(() => {
     if (!activeProviderId) return;
     const provider = PROVIDER_CATALOG_BY_ID[activeProviderId];
+    const requestId = oauthStatusRequestRef.current + 1;
+    oauthStatusRequestRef.current = requestId;
+    setOAuthError("");
+
+    if (provider.auth.type !== "oauth") {
+      setOAuthStatus(null);
+      setOAuthBusy(false);
+      return;
+    }
+
+    setOAuthStatus(null);
+    void felix
+      .invoke("provider.oauth.status", { providerId: activeProviderId })
+      .then((status) => {
+        if (oauthStatusRequestRef.current === requestId) setOAuthStatus(status);
+      })
+      .catch((error: unknown) => {
+        if (oauthStatusRequestRef.current !== requestId) return;
+        setOAuthError(error instanceof Error ? error.message : String(error));
+      });
+  }, [activeProviderId]);
+
+  useEffect(() => {
+    if (!activeProviderId) return;
+    const provider = PROVIDER_CATALOG_BY_ID[activeProviderId];
     const authState = authStateFor(provider, {
       apiKey: activeApiKey,
-      oauthAccessToken: activeOAuthAccessToken,
-      oauthExpiresAt: activeOAuthExpiresAt,
-      oauthError: activeOAuthError,
+      oauthStatus,
+      oauthError,
     });
 
     if (!authState.request) {
@@ -199,11 +233,10 @@ export function Settings() {
     };
   }, [
     activeApiKey,
-    activeOAuthAccessToken,
-    activeOAuthError,
-    activeOAuthExpiresAt,
     activeProviderId,
     modelRefreshToken,
+    oauthError,
+    oauthStatus,
   ]);
 
   useEffect(() => {
@@ -211,11 +244,24 @@ export function Settings() {
     const currentModel = modelResult.models.find((model) => model.id === settings.activeModel);
     if (currentModel) {
       const nextInputModalities = currentModel.inputModalities ?? null;
-      if (sameInputModalities(settings.activeModelInputModalities, nextInputModalities)) return;
+      const nextReasoningEffort = normalizedReasoningEffort(
+        currentModel,
+        settings.reasoningEffort,
+      );
+      if (
+        sameInputModalities(settings.activeModelInputModalities, nextInputModalities) &&
+        settings.reasoningEffort === nextReasoningEffort
+      ) {
+        return;
+      }
       setSettings((current) => {
         if (!current || current.activeProvider !== modelResult.providerId) return current;
         if (current.activeModel !== currentModel.id) return current;
-        return { ...current, activeModelInputModalities: nextInputModalities };
+        return {
+          ...current,
+          activeModelInputModalities: nextInputModalities,
+          reasoningEffort: nextReasoningEffort,
+        };
       });
       return;
     }
@@ -233,6 +279,7 @@ export function Settings() {
         ...current,
         activeModel: nextModel.id,
         activeModelInputModalities: nextModel.inputModalities ?? null,
+        reasoningEffort: normalizedReasoningEffort(nextModel, current.reasoningEffort),
       };
     });
   }, [modelResult, settings]);
@@ -250,11 +297,12 @@ export function Settings() {
   const activeProvider = PROVIDER_CATALOG_BY_ID[settings.activeProvider];
   const activeAuthState = authStateFor(activeProvider, {
     apiKey: activeApiKey,
-    oauthAccessToken: activeOAuthAccessToken,
-    oauthExpiresAt: activeOAuthExpiresAt,
-    oauthError: activeOAuthError,
+    oauthStatus,
+    oauthError,
   });
   const modelOptions = modelsFor(settings, modelResult);
+  const selectedModel = modelOptions.find((model) => model.id === settings.activeModel);
+  const reasoningEfforts = selectedModel?.reasoningEfforts ?? [];
   const selectedModelValue = modelOptions.some((model) => model.id === settings.activeModel)
     ? settings.activeModel
     : "";
@@ -309,6 +357,7 @@ export function Settings() {
 
   const setProvider = (id: ProviderId) => {
     const provider = PROVIDER_CATALOG_BY_ID[id];
+    const defaultModel = provider.fallbackModels.find((model) => model.id === provider.defaultModel);
     setModelResult(null);
     setLoadingModels(false);
     updateSettings("provider", (current) => ({
@@ -316,7 +365,56 @@ export function Settings() {
       activeProvider: id,
       activeModel: provider.defaultModel,
       activeModelInputModalities: null,
+      reasoningEffort: defaultModel
+        ? normalizedReasoningEffort(defaultModel, current.reasoningEffort)
+        : current.reasoningEffort,
     }));
+  };
+
+  const authorizeProvider = async () => {
+    if (activeProvider.auth.type !== "oauth") return;
+    oauthStatusRequestRef.current += 1;
+    setOAuthBusy(true);
+    setOAuthError("");
+    try {
+      const status = await felix.invoke("provider.oauth.login", {
+        providerId: activeProvider.id,
+      });
+      setOAuthStatus(status);
+      setModelRefreshToken((current) => current + 1);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message !== "Authorization cancelled.") setOAuthError(message);
+    } finally {
+      setOAuthBusy(false);
+    }
+  };
+
+  const cancelProviderAuthorization = () => {
+    if (activeProvider.auth.type !== "oauth") return;
+    void felix
+      .invoke("provider.oauth.cancel", { providerId: activeProvider.id })
+      .catch((error: unknown) => {
+        setOAuthError(error instanceof Error ? error.message : String(error));
+      });
+  };
+
+  const disconnectProvider = async () => {
+    if (activeProvider.auth.type !== "oauth") return;
+    oauthStatusRequestRef.current += 1;
+    setOAuthBusy(true);
+    setOAuthError("");
+    try {
+      const status = await felix.invoke("provider.oauth.logout", {
+        providerId: activeProvider.id,
+      });
+      setOAuthStatus(status);
+      setModelResult(null);
+    } catch (error) {
+      setOAuthError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setOAuthBusy(false);
+    }
   };
 
   const setModel = (id: string) => {
@@ -325,7 +423,14 @@ export function Settings() {
       ...current,
       activeModel: id,
       activeModelInputModalities: model?.inputModalities ?? null,
+      reasoningEffort: model
+        ? normalizedReasoningEffort(model, current.reasoningEffort)
+        : current.reasoningEffort,
     }));
+  };
+
+  const setReasoningEffort = (reasoningEffort: ReasoningEffort) => {
+    updateSettings("provider", (current) => ({ ...current, reasoningEffort }));
   };
 
   const setIconGeneration = (iconSettings: FelixSettings["iconGeneration"]) => {
@@ -533,9 +638,35 @@ export function Settings() {
                       />
                     </InputGroup>
                   ) : (
-                    <Button variant="tertiary" size="sm" disabled className="self-start">
-                      {activeOAuthAccessToken ? "Re-authorize" : "Authorize"}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="tertiary"
+                        size="sm"
+                        loading={oauthBusy}
+                        onClick={() => void authorizeProvider()}
+                      >
+                        {oauthStatus?.providerId === activeProvider.id && oauthStatus.authorized
+                          ? "Re-authorize"
+                          : "Authorize"}
+                      </Button>
+                      {oauthBusy ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={cancelProviderAuthorization}
+                        >
+                          Cancel
+                        </Button>
+                      ) : oauthStatus?.providerId === activeProvider.id && oauthStatus.authorized ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void disconnectProvider()}
+                        >
+                          Disconnect
+                        </Button>
+                      ) : null}
+                    </div>
                   )}
                 </div>
                 <div className="flex flex-col gap-1.5">
@@ -574,6 +705,31 @@ export function Settings() {
                   </div>
                   <p className={modelStatusClass}>{modelStatus}</p>
                 </div>
+                {reasoningEfforts.length > 0 ? (
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Reasoning effort
+                    </label>
+                    <Select
+                      value={settings.reasoningEffort}
+                      onValueChange={(value) => setReasoningEffort(value as ReasoningEffort)}
+                    >
+                      <SelectTrigger className="w-full" />
+                      <SelectContent>
+                        <SelectGroup>
+                          {reasoningEfforts.map((effort, index) => (
+                            <SelectItem key={effort} index={index} value={effort}>
+                              {REASONING_EFFORT_LABELS[effort]}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Higher effort can improve difficult builds, but takes longer.
+                    </p>
+                  </div>
+                ) : null}
                   </SettingsSection>
                 </SettingsMotionPanel>
               ) : null}
@@ -949,6 +1105,7 @@ function mergeSection(
         activeProvider: draft.activeProvider,
         activeModel: draft.activeModel,
         activeModelInputModalities: draft.activeModelInputModalities,
+        reasoningEffort: draft.reasoningEffort,
         providers: draft.providers,
       };
     case "learning":
@@ -976,6 +1133,7 @@ function applySavedSection(
         activeProvider: saved.activeProvider,
         activeModel: saved.activeModel,
         activeModelInputModalities: saved.activeModelInputModalities,
+        reasoningEffort: saved.reasoningEffort,
         providers: saved.providers,
       };
     case "learning":
@@ -1016,7 +1174,7 @@ function updateProviderApiKey(
   const providers = settings.providers.filter((provider) => provider.id !== id);
   const trimmedKey = apiKey.trim();
 
-  if (trimmedKey.length === 0 && !existingProvider?.oauth) {
+  if (trimmedKey.length === 0) {
     return { ...settings, providers };
   }
 
@@ -1042,6 +1200,15 @@ function sameInputModalities(
   return left.every((value, index) => value === right[index]);
 }
 
+function normalizedReasoningEffort(
+  model: ProviderModel,
+  current: ReasoningEffort,
+): ReasoningEffort {
+  const efforts = model.reasoningEfforts;
+  if (!efforts || efforts.length === 0 || efforts.includes(current)) return current;
+  return efforts.includes("medium") ? "medium" : (efforts[0] ?? current);
+}
+
 function modelStatusText(
   provider: ProviderCatalogEntry,
   authState: ProviderAuthState,
@@ -1055,6 +1222,9 @@ function modelStatusText(
   }
   if (modelResult.source === "provider") {
     return `${modelResult.models.length} models loaded from ${provider.label}.`;
+  }
+  if (modelResult.source === "builtin") {
+    return `${modelResult.models.length} models available with ${provider.label}.`;
   }
   if (modelResult.source === "local") {
     return modelResult.error
@@ -1077,8 +1247,7 @@ function modelPlaceholderText(canLoadModels: boolean, loadingModels: boolean): s
 
 interface AuthStateInput {
   apiKey: string;
-  oauthAccessToken: string;
-  oauthExpiresAt: string;
+  oauthStatus: ProviderOAuthStatus | null;
   oauthError: string;
 }
 
@@ -1108,7 +1277,15 @@ function authStateFor(provider: ProviderCatalogEntry, input: AuthStateInput): Pr
     };
   }
 
-  if (input.oauthAccessToken.trim().length === 0) {
+  if (!input.oauthStatus || input.oauthStatus.providerId !== provider.id) {
+    return {
+      request: null,
+      message: `Checking ${provider.label} authorization...`,
+      severity: "muted",
+    };
+  }
+
+  if (!input.oauthStatus.authorized) {
     return {
       request: null,
       message: `Authorize ${provider.label} to load models.`,
@@ -1116,23 +1293,9 @@ function authStateFor(provider: ProviderCatalogEntry, input: AuthStateInput): Pr
     };
   }
 
-  if (isExpired(input.oauthExpiresAt)) {
-    return {
-      request: null,
-      message: `${provider.label} authorization expired. Re-authorize and try again.`,
-      severity: "error",
-    };
-  }
-
   return {
-    request: { oauthAccessToken: input.oauthAccessToken.trim() },
+    request: {},
     message: null,
     severity: "muted",
   };
-}
-
-function isExpired(expiresAt: string): boolean {
-  if (expiresAt.trim().length === 0) return false;
-  const expiresAtMs = Date.parse(expiresAt);
-  return !Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now();
 }

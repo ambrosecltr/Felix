@@ -89,8 +89,14 @@ export function resolvePiPackageDir(
 
   let dir = path.dirname(new URL(import.meta.url).pathname);
   for (let i = 0; i < 8; i++) {
-    const candidate = path.join(dir, NODE_MODULES_DIR, ...packageName.split("/"));
-    if (fs.existsSync(path.join(candidate, "package.json"))) return candidate;
+    const candidates = [
+      path.join(dir, NODE_MODULES_DIR, ...packageName.split("/")),
+      path.join(dir, "apps", "core", NODE_MODULES_DIR, ...packageName.split("/")),
+      path.join(dir, "apps", "desktop", NODE_MODULES_DIR, ...packageName.split("/")),
+    ];
+    for (const candidate of candidates) {
+      if (fs.existsSync(path.join(candidate, "package.json"))) return candidate;
+    }
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;

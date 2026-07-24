@@ -17,6 +17,7 @@ type JsonRecord = Record<string, unknown>;
 
 interface ProviderModelListOptions {
   homeDir?: string;
+  oauthAuthorized?: boolean;
 }
 
 const OPENCODE_REGISTRY_PROVIDER_BY_ID: Partial<Record<ProviderId, string>> = {
@@ -90,7 +91,7 @@ export async function listProviderModels(
 ): Promise<ProviderModelsResponse> {
   const parsedRequest = ProviderModelsRequest.parse(request);
   const provider = PROVIDER_CATALOG_BY_ID[parsedRequest.providerId];
-  const credential = credentialFor(provider, parsedRequest);
+  const credential = credentialFor(provider, parsedRequest, options);
 
   if (!credential) {
     return {
@@ -98,6 +99,15 @@ export async function listProviderModels(
       models: [],
       source: "none",
       error: `${provider.label} needs ${provider.auth.label} before models can be loaded.`,
+    };
+  }
+
+  if (provider.modelSource === "pi-builtin") {
+    return {
+      providerId: provider.id,
+      models: provider.fallbackModels.map((model) => ({ ...model })),
+      source: "builtin",
+      error: null,
     };
   }
 
@@ -137,6 +147,10 @@ async function fetchProviderModels(
   credential: string,
 ): Promise<ProviderModel[]> {
   const provider = PROVIDER_CATALOG_BY_ID[providerId];
+  if (provider.modelSource === "pioneer-base-models") {
+    return fetchPioneerModels(provider);
+  }
+
   const headers: Record<string, string> = {
     Accept: "application/json",
     Authorization: `Bearer ${credential}`,
@@ -162,6 +176,33 @@ async function fetchProviderModels(
   return dedupeModels(
     data
       .map((entry) => normalizeModel(providerId, entry))
+      .filter((model): model is ProviderModel => model !== null),
+  );
+}
+
+async function fetchPioneerModels(provider: ProviderCatalogEntry): Promise<ProviderModel[]> {
+  const url = `${provider.baseUrl.replace(/\/v1\/?$/, "")}/base-models`;
+  let response: Response | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    response = await fetch(url, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(MODEL_LIST_TIMEOUT_MS),
+    });
+    if (response.status < 500) break;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  if (!response?.ok) {
+    throw new Error(`Provider model list failed with HTTP ${response?.status ?? "unknown"}.`);
+  }
+
+  const payload = await response.json();
+  const data = readArrayProperty(payload, "models");
+  if (!data) throw new Error("Provider model list response was not in the expected format.");
+
+  return dedupeModels(
+    data
+      .map(normalizePioneerModel)
       .filter((model): model is ProviderModel => model !== null),
   );
 }
@@ -198,14 +239,14 @@ async function modelRecoveryResponse(
 function credentialFor(
   provider: ProviderCatalogEntry,
   request: ProviderModelsRequest,
+  options: ProviderModelListOptions,
 ): string | null {
   if (provider.auth.type === "api_key") {
     const apiKey = request.apiKey?.trim() ?? "";
     return apiKey.length > 0 ? apiKey : null;
   }
 
-  const accessToken = request.oauthAccessToken?.trim() ?? "";
-  return accessToken.length > 0 ? accessToken : null;
+  return options.oauthAuthorized ? "authorized" : null;
 }
 
 async function readOpenCodeRegistryModels(
@@ -318,6 +359,23 @@ function normalizeModel(providerId: ProviderId, entry: unknown): ProviderModel |
     id,
     name: readStringProperty(entry, "name") ?? makeDisplayName(id),
   }, inputModalities);
+}
+
+function normalizePioneerModel(entry: unknown): ProviderModel | null {
+  if (!isRecord(entry)) return null;
+  if (
+    readStringProperty(entry, "task_type") !== "decoder" ||
+    entry.supports_inference !== true ||
+    entry.is_chat_model !== true
+  ) {
+    return null;
+  }
+  const id = readStringProperty(entry, "id");
+  if (!id) return null;
+  return withOptionalInputModalities({
+    id,
+    name: readStringProperty(entry, "label") ?? makeDisplayName(id),
+  }, entry.supports_image_input === true ? ["text", "image"] : ["text"]);
 }
 
 function isChatModel(providerId: ProviderId, id: string, entry: Record<string, unknown>): boolean {

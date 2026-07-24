@@ -8,6 +8,10 @@ import {
   type ProviderInputModality,
   type ProviderModel,
 } from "@felix/contracts";
+import {
+  type ProviderApiKeyCredential,
+  writeProviderApiKeyCredentials,
+} from "./providerAuth.ts";
 
 interface PiProviderConfig {
   name: string;
@@ -31,11 +35,6 @@ interface PiProviderModelConfig {
 
 interface PiProviderModelOverride {
   input: ProviderInputModality[];
-}
-
-interface PiApiKeyCredential {
-  type: "api_key";
-  key: string;
 }
 
 interface OpenCodeCliCredential {
@@ -67,7 +66,7 @@ export async function writeProviderConfig(
 ): Promise<void> {
   await fs.mkdir(agentDir, { recursive: true });
 
-  const auth: Record<string, PiApiKeyCredential> = {};
+  const auth: Partial<Record<ProviderId, ProviderApiKeyCredential>> = {};
   const providers: Partial<Record<ProviderId, PiProviderConfig>> = {};
   const opencodeCredentials: Record<string, string> = {};
   const activeModel = storedActiveModel(settings);
@@ -101,11 +100,7 @@ export async function writeProviderConfig(
     };
   }
 
-  await fs.writeFile(
-    path.join(agentDir, "auth.json"),
-    JSON.stringify(auth, null, 2),
-    { encoding: "utf8", mode: 0o600 },
-  );
+  await writeProviderApiKeyCredentials(path.join(agentDir, "auth.json"), auth);
   await fs.writeFile(
     path.join(agentDir, "models.json"),
     JSON.stringify({ providers }, null, 2),
@@ -153,7 +148,7 @@ async function writeOpenCodeAuth(
 
   for (const [authKey, apiKey] of entries) {
     openCodeAuth[authKey] = { type: "api", key: apiKey } satisfies OpenCodeCliCredential;
-    piAuth[authKey] = { type: "api_key", key: apiKey } satisfies PiApiKeyCredential;
+    piAuth[authKey] = { type: "api_key", key: apiKey } satisfies ProviderApiKeyCredential;
   }
 
   await Promise.all([

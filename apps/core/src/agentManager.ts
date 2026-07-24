@@ -186,21 +186,7 @@ export class AgentManager {
       throw err;
     }
 
-    const piArgs = [
-      "--mode",
-      "rpc",
-      "--provider",
-      settings.activeProvider,
-      "--model",
-      settings.activeModel,
-      "--session-dir",
-      sessionDir,
-      // Stable per-app session id so PI resumes the same conversation across
-      // app restarts (created on first use). Without this PI starts fresh and
-      // the model loses all prior context even though we show the kid's chat.
-      "--session-id",
-      sessionIdFor(appId),
-    ];
+    const piArgs = buildPiArgs(settings, sessionDir, appId);
     for (const extensionPath of this.piExtensionPaths) {
       if (!settings.webSearch.enabled && isWebSearchExtensionPath(extensionPath)) continue;
       piArgs.push("--extension", extensionPath);
@@ -233,7 +219,7 @@ export class AgentManager {
           bunBin: this.bunBin,
           inheritedPath: process.env.PATH,
         }),
-        PI_AGENT_DIR: agentDir,
+        PI_CODING_AGENT_DIR: agentDir,
         IMPECCABLE_NO_UPDATE_CHECK: "1",
         FELIX_SYSTEM_PROMPT: felixSystemPrompt(settings.learningLevel),
       };
@@ -589,6 +575,28 @@ export function buildAgentPath(options: {
     ...(options.inheritedPath?.split(path.delimiter) ?? []),
   ];
   return [...new Set(entries.filter((entry) => entry.length > 0))].join(path.delimiter);
+}
+
+export function buildPiArgs(
+  settings: FelixSettings,
+  sessionDir: string,
+  appId: string,
+): string[] {
+  return [
+    "--mode",
+    "rpc",
+    "--provider",
+    settings.activeProvider,
+    "--model",
+    settings.activeModel,
+    "--thinking",
+    settings.reasoningEffort,
+    "--session-dir",
+    sessionDir,
+    // Stable per-app session id preserves model context across app restarts.
+    "--session-id",
+    sessionIdFor(appId),
+  ];
 }
 
 function sessionIdFor(appId: string): string {

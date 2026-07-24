@@ -13,6 +13,29 @@ afterEach(async () => {
 });
 
 describe("provider config", () => {
+  test("preserves ChatGPT OAuth when API key settings are rewritten", async () => {
+    const agentDir = await fs.mkdtemp(path.join(os.tmpdir(), "felix-agent-"));
+    tempDirs.push(agentDir);
+    const authFile = path.join(agentDir, "auth.json");
+    const oauth = {
+      type: "oauth",
+      access: "access-token",
+      refresh: "refresh-token",
+      expires: Date.now() + 60_000,
+      accountId: "account-id",
+    };
+    await fs.writeFile(authFile, JSON.stringify({ "openai-codex": oauth }), "utf8");
+
+    await writeProviderConfig(agentDir, {
+      ...DEFAULT_SETTINGS,
+      providers: [{ id: "openrouter", apiKey: "sk-or-test" }],
+    });
+
+    const stored = JSON.parse(await fs.readFile(authFile, "utf8")) as Record<string, unknown>;
+    expect(stored["openai-codex"]).toEqual(oauth);
+    expect(stored.openrouter).toEqual({ type: "api_key", key: "sk-or-test" });
+  });
+
   test("overrides catalog model image input without replacing the model", async () => {
     const agentDir = await fs.mkdtemp(path.join(os.tmpdir(), "felix-agent-"));
     tempDirs.push(agentDir);

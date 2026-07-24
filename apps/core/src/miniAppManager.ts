@@ -17,6 +17,8 @@ import {
   type MiniAppIconDataResponse,
   type ProviderInputModality,
   type ProviderModelsRequest,
+  type ProviderOAuthRequest,
+  type ProviderOAuthStatus,
   type PushEvent,
   type SettingsLockdownSetRequest,
   type SettingsLockdownVerifyRequest,
@@ -43,6 +45,7 @@ import {
 } from "./iconGeneration.ts";
 import { bundledNodePath, resolveMiniAppNode } from "./nodeRuntime.ts";
 import { listProviderModels } from "./providerModels.ts";
+import { ProviderAuthManager, type ProviderOAuthLoginOptions } from "./providerAuth.ts";
 import { ProfileStore } from "./profileStore.ts";
 import { resolvePiPackageDir } from "./resolvePi.ts";
 import { SettingsStore } from "./settingsStore.ts";
@@ -84,6 +87,7 @@ const ICON_MIME_EXTENSIONS: Record<string, string> = {
 
 export class MiniAppManager {
   private readonly paths = felixPaths();
+  private readonly providerAuth = new ProviderAuthManager(this.paths.agent);
   private readonly settings = new SettingsStore();
   private readonly profile = new ProfileStore(
     this.paths.profileFile,
@@ -121,11 +125,15 @@ export class MiniAppManager {
         : undefined,
     });
     this.vite = new ViteManager(nodeBin);
-    const piExtensionPaths = [
+    const piExtensionPackages = [
       "@juicesharp/rpiv-web-tools",
-      "pi-nvidia-nim",
-      "pi-opencode-bridge",
-    ]
+      ...new Set(
+        Object.values(PROVIDER_CATALOG_BY_ID)
+          .map((provider) => provider.extensionPackage)
+          .filter((packageName): packageName is string => Boolean(packageName)),
+      ),
+    ];
+    const piExtensionPaths = piExtensionPackages
       .map((packageName) => resolvePiPackageDir(packageName, options.resourcesDir))
       .filter((extensionPath): extensionPath is string => extensionPath !== null);
     this.agent = new AgentManager(
@@ -583,10 +591,9 @@ export class MiniAppManager {
     }
 
     const provider = settings.providers.find((candidate) => candidate.id === settings.activeProvider);
-    const response = await listProviderModels({
+    const response = await this.listProviderModels({
       providerId: settings.activeProvider,
       apiKey: provider?.apiKey,
-      oauthAccessToken: provider?.oauth?.accessToken,
     });
     const activeModel = response.models.find((model) => model.id === settings.activeModel);
     const inputModalities = activeModel?.inputModalities ?? null;
@@ -716,8 +723,32 @@ export class MiniAppManager {
     return this.getProfileOverview();
   }
 
-  listProviderModels(request: ProviderModelsRequest) {
-    return listProviderModels(request);
+  async listProviderModels(request: ProviderModelsRequest) {
+    const provider = PROVIDER_CATALOG_BY_ID[request.providerId];
+    const oauthAuthorized =
+      provider.auth.type === "oauth"
+        ? await this.providerAuth.ensureAuthorized(provider.id)
+        : false;
+    return listProviderModels(request, { oauthAuthorized });
+  }
+
+  providerOAuthStatus(request: ProviderOAuthRequest): Promise<ProviderOAuthStatus> {
+    return this.providerAuth.status(request.providerId);
+  }
+
+  loginProviderOAuth(
+    request: ProviderOAuthRequest,
+    options: ProviderOAuthLoginOptions,
+  ): Promise<ProviderOAuthStatus> {
+    return this.providerAuth.login(request.providerId, options);
+  }
+
+  cancelProviderOAuth(request: ProviderOAuthRequest): void {
+    this.providerAuth.cancel(request.providerId);
+  }
+
+  logoutProviderOAuth(request: ProviderOAuthRequest): Promise<ProviderOAuthStatus> {
+    return this.providerAuth.logout(request.providerId);
   }
 
   // --- internals ---
@@ -871,6 +902,7 @@ export class MiniAppManager {
   }
 
   shutdown(): void {
+    this.providerAuth.shutdown();
     this.agent.stopAll();
     this.vite.stopAll();
     for (const appId of [...this.aboutWatchers.keys()]) this.unwatchAbout(appId);

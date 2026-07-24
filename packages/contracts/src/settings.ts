@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { PROVIDER_CATALOG_BY_ID, ProviderId, ProviderInputModality } from "./providers.ts";
+import {
+  PROVIDER_CATALOG_BY_ID,
+  ProviderId,
+  ProviderInputModality,
+  ReasoningEffort,
+} from "./providers.ts";
 
 export const WEB_SEARCH_PROVIDER_IDS = [
   "brave",
@@ -100,18 +105,9 @@ export const WEB_SEARCH_PROVIDER_CATALOG = WEB_SEARCH_PROVIDER_IDS.map(
   (id) => WEB_SEARCH_PROVIDER_CATALOG_BY_ID[id],
 );
 
-export const ProviderOAuthConfig = z.object({
-  accessToken: z.string().default(""),
-  refreshToken: z.string().default(""),
-  expiresAt: z.string().nullable().default(null),
-  error: z.string().nullable().default(null),
-});
-export type ProviderOAuthConfig = z.infer<typeof ProviderOAuthConfig>;
-
 export const ProviderConfig = z.object({
   id: ProviderId,
   apiKey: z.string().default(""),
-  oauth: ProviderOAuthConfig.optional(),
 });
 export type ProviderConfig = z.infer<typeof ProviderConfig>;
 
@@ -144,6 +140,7 @@ export const FelixSettings = z.object({
   activeProvider: ProviderId.default("openrouter"),
   activeModel: z.string().default("anthropic/claude-3.5-sonnet"),
   activeModelInputModalities: ProviderInputModality.array().nullable().default(null),
+  reasoningEffort: ReasoningEffort.default("medium"),
   providers: z.array(ProviderConfig).default([]),
   iconGeneration: IconGenerationSettings.default({
     enabled: false,
@@ -170,6 +167,7 @@ export const DEFAULT_SETTINGS: FelixSettings = {
   activeProvider: "openrouter",
   activeModel: PROVIDER_CATALOG_BY_ID.openrouter.defaultModel,
   activeModelInputModalities: null,
+  reasoningEffort: "medium",
   providers: [],
   iconGeneration: {
     enabled: false,

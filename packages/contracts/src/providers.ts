@@ -1,9 +1,11 @@
 import { z } from "zod";
 
 export const PROVIDER_IDS = [
+  "openai-codex",
   "openrouter",
   "deepseek",
   "nvidia-nim",
+  "pioneer",
   "oc-sdk-go",
   "oc-sdk-zen",
 ] as const;
@@ -14,24 +16,28 @@ export type ProviderId = z.infer<typeof ProviderId>;
 export const ProviderInputModality = z.enum(["text", "image"]);
 export type ProviderInputModality = z.infer<typeof ProviderInputModality>;
 
+export const REASONING_EFFORTS = ["off", "low", "medium", "high", "xhigh", "max"] as const;
+export const ReasoningEffort = z.enum(REASONING_EFFORTS);
+export type ReasoningEffort = z.infer<typeof ReasoningEffort>;
+
 export const ProviderModel = z.object({
   id: z.string(),
   name: z.string(),
   inputModalities: ProviderInputModality.array().optional(),
+  reasoningEfforts: ReasoningEffort.array().optional(),
 });
 export type ProviderModel = z.infer<typeof ProviderModel>;
 
 export const ProviderModelsRequest = z.object({
   providerId: ProviderId,
   apiKey: z.string().optional(),
-  oauthAccessToken: z.string().optional(),
 });
 export type ProviderModelsRequest = z.infer<typeof ProviderModelsRequest>;
 
 export const ProviderModelsResponse = z.object({
   providerId: ProviderId,
   models: z.array(ProviderModel),
-  source: z.enum(["provider", "local", "fallback", "none"]),
+  source: z.enum(["provider", "builtin", "local", "fallback", "none"]),
   error: z.string().nullable(),
 });
 export type ProviderModelsResponse = z.infer<typeof ProviderModelsResponse>;
@@ -49,22 +55,90 @@ export interface ProviderOAuthAuth {
   label: string;
 }
 
+export const ProviderOAuthRequest = z.object({
+  providerId: ProviderId,
+});
+export type ProviderOAuthRequest = z.infer<typeof ProviderOAuthRequest>;
+
+export const ProviderOAuthStatus = z.object({
+  providerId: ProviderId,
+  authorized: z.boolean(),
+});
+export type ProviderOAuthStatus = z.infer<typeof ProviderOAuthStatus>;
+
 export type ProviderAuth = ProviderApiKeyAuth | ProviderOAuthAuth;
 
 export interface ProviderCatalogEntry {
   id: ProviderId;
   label: string;
   baseUrl: string;
-  api: "openai-completions";
+  api: "openai-completions" | "openai-codex-responses";
   auth: ProviderAuth;
-  piConfig: "generated" | "extension";
-  modelSource: "openai-models" | "opencode-registry";
+  piConfig: "builtin" | "generated" | "extension";
+  modelSource: "pi-builtin" | "openai-models" | "pioneer-base-models" | "opencode-registry";
   extensionPackage?: string;
   defaultModel: string;
   fallbackModels: readonly ProviderModel[];
 }
 
 export const PROVIDER_CATALOG_BY_ID: Record<ProviderId, ProviderCatalogEntry> = {
+  "openai-codex": {
+    id: "openai-codex",
+    label: "ChatGPT Subscription",
+    baseUrl: "https://chatgpt.com/backend-api",
+    api: "openai-codex-responses",
+    auth: {
+      type: "oauth",
+      label: "ChatGPT account",
+    },
+    piConfig: "builtin",
+    modelSource: "pi-builtin",
+    defaultModel: "gpt-5.6-sol",
+    fallbackModels: [
+      {
+        id: "gpt-5.6-sol",
+        name: "GPT-5.6 Sol",
+        inputModalities: ["text", "image"],
+        reasoningEfforts: [...REASONING_EFFORTS],
+      },
+      {
+        id: "gpt-5.6-terra",
+        name: "GPT-5.6 Terra",
+        inputModalities: ["text", "image"],
+        reasoningEfforts: [...REASONING_EFFORTS],
+      },
+      {
+        id: "gpt-5.6-luna",
+        name: "GPT-5.6 Luna",
+        inputModalities: ["text", "image"],
+        reasoningEfforts: [...REASONING_EFFORTS],
+      },
+      {
+        id: "gpt-5.5",
+        name: "GPT-5.5",
+        inputModalities: ["text", "image"],
+        reasoningEfforts: ["off", "low", "medium", "high", "xhigh"],
+      },
+      {
+        id: "gpt-5.4",
+        name: "GPT-5.4",
+        inputModalities: ["text", "image"],
+        reasoningEfforts: ["off", "low", "medium", "high", "xhigh"],
+      },
+      {
+        id: "gpt-5.4-mini",
+        name: "GPT-5.4 mini",
+        inputModalities: ["text", "image"],
+        reasoningEfforts: ["off", "low", "medium", "high", "xhigh"],
+      },
+      {
+        id: "gpt-5.3-codex-spark",
+        name: "GPT-5.3 Codex Spark",
+        inputModalities: ["text"],
+        reasoningEfforts: ["off", "low", "medium", "high", "xhigh"],
+      },
+    ],
+  },
   openrouter: {
     id: "openrouter",
     label: "OpenRouter",
@@ -146,6 +220,28 @@ export const PROVIDER_CATALOG_BY_ID: Record<ProviderId, ProviderCatalogEntry> = 
       },
       { id: "microsoft/phi-4-mini-flash-reasoning", name: "Phi 4 Mini Flash Reasoning" },
       { id: "ibm/granite-3.3-8b-instruct", name: "Granite 3.3 8B" },
+    ],
+  },
+  pioneer: {
+    id: "pioneer",
+    label: "Pioneer AI",
+    baseUrl: "https://api.pioneer.ai/v1",
+    api: "openai-completions",
+    auth: {
+      type: "api_key",
+      label: "Pioneer API Key",
+      envVars: ["PIONEER_API_KEY"],
+      placeholder: "pio_sk_...",
+    },
+    piConfig: "extension",
+    modelSource: "pioneer-base-models",
+    extensionPackage: "pi-pioneer-provider",
+    defaultModel: "claude-opus-4-7",
+    fallbackModels: [
+      { id: "claude-opus-4-7", name: "Claude Opus 4.7", inputModalities: ["text", "image"] },
+      { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", inputModalities: ["text", "image"] },
+      { id: "deepseek-ai/DeepSeek-V4-Pro", name: "DeepSeek V4 Pro" },
+      { id: "gemini-3.1-pro", name: "Gemini 3.1 Pro", inputModalities: ["text", "image"] },
     ],
   },
   "oc-sdk-go": {

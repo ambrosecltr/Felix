@@ -28,6 +28,7 @@ describe("settings contract", () => {
       pinSalt: "",
     });
     expect(parsed.learningLevel).toBe("beginner");
+    expect(parsed.reasoningEffort).toBe("medium");
   });
 
   test("keeps a valid learning level and rejects unknown ones", () => {

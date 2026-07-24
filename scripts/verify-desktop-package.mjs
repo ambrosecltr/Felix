@@ -302,6 +302,13 @@ const bundledNodeVersion = commandOutput(
 const agentDir = join(resourcesDir, "agent");
 const piPkgDir = join(agentDir, "node_modules", "@earendil-works", "pi-coding-agent");
 const piPkg = readJson(join(piPkgDir, "package.json"), "Bundled PI package.json");
+const workspacePiPkg = readJson(
+  join(repoRoot, "apps", "core", "node_modules", "@earendil-works", "pi-coding-agent", "package.json"),
+  "Workspace PI package.json",
+);
+if (piPkg?.version && workspacePiPkg?.version && piPkg.version !== workspacePiPkg.version) {
+  fail(`Bundled PI version is ${piPkg.version}, expected workspace version ${workspacePiPkg.version}`);
+}
 const piBinRel = typeof piPkg?.bin === "string" ? piPkg.bin : piPkg?.bin?.pi ?? "dist/cli.js";
 const piBin = join(piPkgDir, piBinRel);
 requirePath(piBin, "Bundled PI CLI", { file: true });
@@ -320,6 +327,9 @@ requirePath(join(agentDir, "node_modules", "pi-nvidia-nim", "package.json"), "PI
   file: true,
 });
 requirePath(join(agentDir, "node_modules", "pi-opencode-bridge", "package.json"), "PI OpenCode extension", {
+  file: true,
+});
+requirePath(join(agentDir, "node_modules", "pi-pioneer-provider", "package.json"), "PI Pioneer extension", {
   file: true,
 });
 await assertNoSymlinks(agentDir, "Bundled PI agent install");

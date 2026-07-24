@@ -3,6 +3,7 @@ import { DEFAULT_SETTINGS, type AgentEvent } from "@felix/contracts";
 import {
   AgentManager,
   buildAgentPath,
+  buildPiArgs,
   buildPromptCommand,
   readAgentTokenUsageEvent,
 } from "../src/agentManager.ts";
@@ -113,6 +114,17 @@ describe("agent prompt commands", () => {
         "/bin",
       ].join(":"),
     );
+  });
+
+  test("passes the saved reasoning effort to PI", () => {
+    const args = buildPiArgs(
+      { ...DEFAULT_SETTINGS, reasoningEffort: "max" },
+      "/tmp/felix/sessions",
+      "snake",
+    );
+    const thinkingIndex = args.indexOf("--thinking");
+
+    expect(args.slice(thinkingIndex, thinkingIndex + 2)).toEqual(["--thinking", "max"]);
   });
 });
 

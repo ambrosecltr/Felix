@@ -13,7 +13,12 @@ import {
   MiniAppStatus,
   MiniAppSummary,
 } from "./miniApp.ts";
-import { ProviderModelsRequest, ProviderModelsResponse } from "./providers.ts";
+import {
+  ProviderModelsRequest,
+  ProviderModelsResponse,
+  ProviderOAuthRequest,
+  ProviderOAuthStatus,
+} from "./providers.ts";
 import { ProfileOverview, SetProfileNameRequest } from "./profile.ts";
 import { FelixSettings } from "./settings.ts";
 
@@ -117,6 +122,10 @@ export interface FelixApi {
   "profile.get": [void, ProfileOverview];
   "profile.setName": [SetProfileNameRequest, ProfileOverview];
   "provider.models": [ProviderModelsRequest, ProviderModelsResponse];
+  "provider.oauth.status": [ProviderOAuthRequest, ProviderOAuthStatus];
+  "provider.oauth.login": [ProviderOAuthRequest, ProviderOAuthStatus];
+  "provider.oauth.cancel": [ProviderOAuthRequest, void];
+  "provider.oauth.logout": [ProviderOAuthRequest, ProviderOAuthStatus];
   "update.status": [void, UpdateStatus];
   "update.check": [void, UpdateStatus];
   "update.downloadAndInstall": [void, UpdateStatus];

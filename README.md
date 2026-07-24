@@ -22,7 +22,7 @@ Current public builds are Apple Silicon only (`arm64`). Download the DMG, open i
 - Gives the coding agent browser-preview tools to inspect, screenshot, click, type, reload, and read console logs from the running mini app before calling work done.
 - Keeps each mini app in its own local folder with its own source code, SQLite database, Vite dev server, and git history.
 - Bundles Felix-specific workspace skills for app craft, visual design, games, safety, assets, robustness, and build quality.
-- Supports model providers through Settings, currently including OpenRouter, DeepSeek, OpenCode Go, and OpenCode Zen.
+- Supports model providers through Settings, currently including ChatGPT Subscription, OpenRouter, DeepSeek, NVIDIA NIM, Pioneer AI, OpenCode Go, and OpenCode Zen.
 - Supports a configurable learning level so Felix can adjust how much teaching context it includes while building.
 - Supports optional web search integrations for agents that need current information.
 - Can generate dashboard icons when icon generation is enabled.

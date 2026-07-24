@@ -32,6 +32,8 @@ const NVIDIA_NIM_PKG = "pi-nvidia-nim";
 const NVIDIA_NIM_VERSION = "^1.1.22";
 const OPENCODE_BRIDGE_PKG = "pi-opencode-bridge";
 const OPENCODE_BRIDGE_VERSION = "^0.2.1";
+const PIONEER_PROVIDER_PKG = "pi-pioneer-provider";
+const PIONEER_PROVIDER_VERSION = "^1.0.0";
 
 function piVersion() {
   // Pin to the version resolved in the workspace so the bundle matches dev.
@@ -54,8 +56,8 @@ function piVersion() {
 function workspacePackageJsonCandidates(packageName) {
   const packageParts = packageName.split("/");
   return [
-    path.join(repoRoot, "apps", "desktop", "node_modules", ...packageParts, "package.json"),
     path.join(repoRoot, "apps", "core", "node_modules", ...packageParts, "package.json"),
+    path.join(repoRoot, "apps", "desktop", "node_modules", ...packageParts, "package.json"),
     path.join(repoRoot, "node_modules", ...packageParts, "package.json"),
     path.join(repoRoot, "node_modules", ".bun", "node_modules", ...packageParts, "package.json"),
   ];
@@ -88,6 +90,7 @@ async function main() {
           [WEB_TOOLS_PKG]: WEB_TOOLS_VERSION,
           [NVIDIA_NIM_PKG]: NVIDIA_NIM_VERSION,
           [OPENCODE_BRIDGE_PKG]: OPENCODE_BRIDGE_VERSION,
+          [PIONEER_PROVIDER_PKG]: PIONEER_PROVIDER_VERSION,
         },
       },
       null,
@@ -99,7 +102,7 @@ async function main() {
   // Use a real npm to get a flat, copyable node_modules (no workspace symlinks).
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   console.log(
-    `Installing ${spec}, ${WEB_TOOLS_PKG}@${WEB_TOOLS_VERSION}, ${NVIDIA_NIM_PKG}@${NVIDIA_NIM_VERSION}, and ${OPENCODE_BRIDGE_PKG}@${OPENCODE_BRIDGE_VERSION} into ${agentDir}`,
+    `Installing ${spec}, ${WEB_TOOLS_PKG}@${WEB_TOOLS_VERSION}, ${NVIDIA_NIM_PKG}@${NVIDIA_NIM_VERSION}, ${OPENCODE_BRIDGE_PKG}@${OPENCODE_BRIDGE_VERSION}, and ${PIONEER_PROVIDER_PKG}@${PIONEER_PROVIDER_VERSION} into ${agentDir}`,
   );
   execFileSync(npm, ["install", "--omit=dev", "--no-audit", "--no-fund"], {
     cwd: agentDir,

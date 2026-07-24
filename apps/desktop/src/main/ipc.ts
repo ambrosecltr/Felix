@@ -1,7 +1,8 @@
-import { ipcMain } from "electron";
+import { ipcMain, shell } from "electron";
 import type { MiniAppManager } from "@felix/core";
 import {
   MiniAppIconRequest,
+  ProviderOAuthRequest,
   SendChatRequest,
   SetProfileNameRequest,
   SettingsLockdownSetRequest,
@@ -60,6 +61,20 @@ export function registerIpc(
   handle("profile.get", () => manager.getProfileOverview());
   handle("profile.setName", (arg) => manager.setProfileName(SetProfileNameRequest.parse(arg)));
   handle("provider.models", (arg) => manager.listProviderModels(arg as never));
+  handle("provider.oauth.status", (arg) =>
+    manager.providerOAuthStatus(ProviderOAuthRequest.parse(arg)),
+  );
+  handle("provider.oauth.login", (arg) =>
+    manager.loginProviderOAuth(ProviderOAuthRequest.parse(arg), {
+      openExternal: (url) => shell.openExternal(url),
+    }),
+  );
+  handle("provider.oauth.cancel", (arg) =>
+    manager.cancelProviderOAuth(ProviderOAuthRequest.parse(arg)),
+  );
+  handle("provider.oauth.logout", (arg) =>
+    manager.logoutProviderOAuth(ProviderOAuthRequest.parse(arg)),
+  );
   handle("update.status", () => updates.getStatus());
   handle("update.check", () => updates.checkForUpdates());
   handle("update.downloadAndInstall", () => updates.downloadAndInstall());
